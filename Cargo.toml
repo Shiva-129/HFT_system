@@ -1,0 +1,24 @@
+﻿[workspace]
+members = [
+    "apps/trading_engine",
+    "crates/common",
+    "crates/feed_handler",
+    "crates/strategy",
+    "crates/execution",
+    "crates/risk_engine",
+    "crates/telemetry",
+    "tools/replay"
+]
+resolver = "2"
+
+[workspace.dependencies]
+tokio = { version = "1.32", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+crossbeam-channel = "0.5"
+# Internal crates
+common = { path = "crates/common" }

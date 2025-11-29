@@ -1,0 +1,14 @@
+﻿[general]
+env = "TESTNET"
+
+[network]
+exchange_wss = "wss://stream.binance.com:9443/ws"
+
+[trading]
+enabled = false
+dry_run = true
+pairs = ["BTCUSDT", "ETHUSDT"]
+
+[risk]
+max_order_value_usd = 100.0
+max_daily_loss_usd = 50.0

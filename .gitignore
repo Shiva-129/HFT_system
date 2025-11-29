@@ -1,0 +1,5 @@
+﻿/target
+/logs
+**/*.DS_Store
+config.toml
+data/fixtures/*.jsonl

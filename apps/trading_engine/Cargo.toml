@@ -1,0 +1,8 @@
+﻿[package]
+name = "trading_engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true }
+common = { workspace = true }
