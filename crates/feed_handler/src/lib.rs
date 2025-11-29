@@ -8,7 +8,7 @@ use futures_util::StreamExt;
 use url::Url;
 use std::time::Duration;
 
-pub async fn connect(symbol: &str) -> Result<mpsc::Receiver<MarketEvent>, EngineError> {
+pub async fn connect(symbol: &str, raw_tx: Option<mpsc::Sender<String>>) -> Result<mpsc::Receiver<MarketEvent>, EngineError> {
     let (tx, rx) = mpsc::channel::<MarketEvent>(10_000);
     let symbol_lower = symbol.to_lowercase();
     let url_str = format!("wss://fstream.binance.com/ws/{}@aggTrade", symbol_lower);
@@ -35,6 +35,11 @@ pub async fn connect(symbol: &str) -> Result<mpsc::Receiver<MarketEvent>, Engine
                     while let Some(msg) = read.next().await {
                         match msg {
                             Ok(Message::Text(text)) => {
+                                // If raw_tx is provided, send the raw message
+                                if let Some(ref raw_sender) = raw_tx {
+                                    let _ = raw_sender.try_send(text.clone());
+                                }
+
                                 match parse_trade(text.as_str()) {
                                     Ok(event) => {
                                         if let Err(_) = tx.try_send(event) {

@@ -1,0 +1,10 @@
+[package]
+name = "recorder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.32", features = ["full"] }
+anyhow = "1.0"
+feed_handler = { workspace = true }
+common = { workspace = true }
