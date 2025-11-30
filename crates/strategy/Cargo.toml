@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 common = { workspace = true }
+rtrb = "0.3"
+tracing = "0.1"

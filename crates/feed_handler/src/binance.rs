@@ -1,9 +1,6 @@
 use serde::Deserialize;
 use common::{MarketEvent, EngineError};
-use once_cell::sync::Lazy;
-use std::time::Instant;
 
-static MONOTONIC_START: Lazy<Instant> = Lazy::new(Instant::now);
 #[allow(non_snake_case)]
 #[derive(Deserialize)]
 pub struct BinanceAggTrade {
@@ -27,7 +24,8 @@ impl TryFrom<BinanceAggTrade> for MarketEvent {
             price,
             quantity,
             exchange_timestamp: trade.T,
-            received_timestamp: MONOTONIC_START.elapsed().as_nanos() as u64,
+            // Use the shared monotonic start time from common crate
+            received_timestamp: common::time::MONOTONIC_START.elapsed().as_nanos() as u64,
         })
     }
 }

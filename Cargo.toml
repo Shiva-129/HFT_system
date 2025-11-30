@@ -24,3 +24,4 @@ crossbeam-channel = "0.5"
 # Internal crates
 common = { path = "crates/common" }
 feed_handler = { path = "crates/feed_handler" }
+strategy = { path = "crates/strategy" }
