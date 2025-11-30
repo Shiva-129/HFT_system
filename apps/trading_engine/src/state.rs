@@ -1,5 +1,8 @@
-use std::sync::{Arc, atomic::{AtomicBool, AtomicUsize}};
 use parking_lot::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize},
+    Arc,
+};
 
 pub struct EngineState {
     /// Global Start/Stop switch. If false, Strategy and Execution should pause.
@@ -24,7 +27,7 @@ impl EngineState {
             trade_count: AtomicUsize::new(0),
             current_pnl: Mutex::new(0.0),
             max_loss_limit: Mutex::new(0.0), // Will be updated from config
-            target_profit: Mutex::new(0.0), // Will be updated from config
+            target_profit: Mutex::new(0.0),  // Will be updated from config
         }
     }
 }

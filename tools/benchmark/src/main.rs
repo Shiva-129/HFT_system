@@ -3,7 +3,7 @@ use common::{MarketEvent, TradeInstruction};
 use feed_handler::parse_trade;
 use hdrhistogram::Histogram;
 use std::fs;
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::{atomic::AtomicBool, Arc};
 use std::time::Instant;
 
 fn load_ticks() -> anyhow::Result<Vec<String>> {
@@ -34,7 +34,10 @@ fn bench_e2e(ticks: &[String]) -> Histogram<u64> {
     let iterations = 100_000;
     let tick_count = ticks.len();
 
-    println!("Running End-to-End Benchmark ({} iterations)...", iterations);
+    println!(
+        "Running End-to-End Benchmark ({} iterations)...",
+        iterations
+    );
 
     // Setup Pipeline
     let (mut market_prod, market_cons) = rtrb::RingBuffer::<MarketEvent>::new(4096);
@@ -52,12 +55,13 @@ fn bench_e2e(ticks: &[String]) -> Histogram<u64> {
                 core_affinity::set_for_current(*core_id);
             }
         }
-        strategy::run(market_cons, trade_prod, s_shutdown, s_running, true, true); // dry_run=true, disable_throttle=true
+        strategy::run(market_cons, trade_prod, s_shutdown, s_running, true, true);
+        // dry_run=true, disable_throttle=true
     });
 
     for i in 0..iterations {
         let line = &ticks[i % tick_count];
-        
+
         // 1. Parse & Timestamp
         let mut event = parse_trade(line).unwrap();
         event.received_timestamp = common::now_nanos(); // Start Clock
@@ -75,7 +79,7 @@ fn bench_e2e(ticks: &[String]) -> Histogram<u64> {
             if let Ok(_instr) = trade_cons.pop() {
                 // 4. Measure Latency
                 let end_ts = common::now_nanos();
-                // Use instruction timestamp if we want "Strategy Decision Time", 
+                // Use instruction timestamp if we want "Strategy Decision Time",
                 // but for "System Latency" we want "Time until Execution receives it".
                 // Let's measure "Tick-to-Order" (End-to-End).
                 let latency = end_ts.saturating_sub(start_ts);

@@ -38,8 +38,9 @@ pub fn run(
                 // tracing::info!(...);
 
                 // Ping-Pong Logic: If price > 50,000, execute trade (throttled)
-                let throttle_passed = disable_throttle || last_trade_time.elapsed() > Duration::from_secs(10);
-                
+                let throttle_passed =
+                    disable_throttle || last_trade_time.elapsed() > Duration::from_secs(10);
+
                 if event.price > 50_000.0 && throttle_passed {
                     let instr = TradeInstruction {
                         symbol: event.symbol.clone(),

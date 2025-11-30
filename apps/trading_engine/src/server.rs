@@ -1,16 +1,16 @@
+use crate::state::EngineState;
 use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::{get, post, get_service},
+    routing::{get, get_service, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, net::SocketAddr};
-use tower_http::services::ServeDir;
-use tower_http::cors::CorsLayer;
-use crate::state::EngineState;
 use std::sync::atomic::Ordering;
+use std::{net::SocketAddr, sync::Arc};
+use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 
 #[derive(Serialize)]
 struct StatusResponse {
@@ -80,8 +80,11 @@ async fn control_engine(
     if state.shutting_down.load(Ordering::Relaxed) {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse { error: "Engine is shutting down".to_string() }),
-        ).into_response();
+            Json(ErrorResponse {
+                error: "Engine is shutting down".to_string(),
+            }),
+        )
+            .into_response();
     }
 
     match payload.command.as_str() {
@@ -89,18 +92,29 @@ async fn control_engine(
             state.is_running.store(true, Ordering::SeqCst);
             risk_engine::arm(); // Arm the system
             tracing::info!("API Command: START - System Armed");
-            (StatusCode::OK, Json(serde_json::json!({"status": "started"}))).into_response()
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"status": "started"})),
+            )
+                .into_response()
         }
         "STOP" => {
             state.is_running.store(false, Ordering::SeqCst);
             risk_engine::disarm(); // Disarm the system
             tracing::info!("API Command: STOP - System Disarmed");
-            (StatusCode::OK, Json(serde_json::json!({"status": "stopped"}))).into_response()
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"status": "stopped"})),
+            )
+                .into_response()
         }
         _ => (
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: "Invalid command".to_string() }),
-        ).into_response(),
+            Json(ErrorResponse {
+                error: "Invalid command".to_string(),
+            }),
+        )
+            .into_response(),
     }
 }
 
@@ -111,8 +125,11 @@ async fn update_config(
     if state.shutting_down.load(Ordering::Relaxed) {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse { error: "Engine is shutting down".to_string() }),
-        ).into_response();
+            Json(ErrorResponse {
+                error: "Engine is shutting down".to_string(),
+            }),
+        )
+            .into_response();
     }
 
     *state.max_loss_limit.lock() = payload.max_loss;
@@ -124,5 +141,9 @@ async fn update_config(
         payload.target_profit
     );
 
-    (StatusCode::OK, Json(serde_json::json!({"status": "updated"}))).into_response()
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"status": "updated"})),
+    )
+        .into_response()
 }
