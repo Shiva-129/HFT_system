@@ -15,7 +15,8 @@ pub fn run(
     shutdown: Arc<AtomicBool>,
 ) {
     tracing::info!("Strategy thread started");
-    let mut last_trade_time = Instant::now();
+    // Initialize to a past time so the first trade is allowed immediately
+    let mut last_trade_time = Instant::now() - Duration::from_secs(20);
 
     while !shutdown.load(Ordering::Relaxed) {
         match consumer.pop() {
