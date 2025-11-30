@@ -9,7 +9,8 @@ members = [
     "crates/telemetry",
     "tools/replay",
     "tools/recorder",
-    "tools/stress_test"
+    "tools/stress_test",
+    "crates/risk_engine"
 ]
 resolver = "2"
 
@@ -26,3 +27,4 @@ crossbeam-channel = "0.5"
 common = { path = "crates/common" }
 feed_handler = { path = "crates/feed_handler" }
 strategy = { path = "crates/strategy" }
+risk_engine = { path = "crates/risk_engine" }

@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 common = { workspace = true }
+tracing = "0.1"
+once_cell = "1.19"
