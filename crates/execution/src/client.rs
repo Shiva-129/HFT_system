@@ -268,7 +268,7 @@ mod tests {
         );
 
         let instr = TradeInstruction {
-            symbol: "BTCUSDT".to_string(),
+            symbol: "BTCUSDT".to_string().into(),
             side: Side::Buy,
             order_type: OrderType::Market,
             price: 50001.0,
