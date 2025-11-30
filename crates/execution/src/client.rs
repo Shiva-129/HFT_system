@@ -1,16 +1,28 @@
 use crate::signer::BinanceSigner;
 use common::{EngineError, TradeInstruction, OrderType};
 use reqwest::Client;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+use std::time::Duration;
+use governor::{DefaultDirectRateLimiter, Quota};
+use nonzero_ext::nonzero;
+use serde::Deserialize;
 
 pub struct ExecutionClient {
     http_client: Client,
     signer: BinanceSigner,
     base_url: String,
-    // Rate Limiting: Max 10 requests per second
-    rate_limit_count: AtomicUsize,
-    rate_limit_reset: AtomicU64,
+    // Rate Limiting: 10 requests per second, burst 10
+    rate_limiter: DefaultDirectRateLimiter,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PositionRisk {
+    pub symbol: String,
+    #[serde(rename = "positionAmt")]
+    pub position_amt: String,
+    #[serde(rename = "entryPrice")]
+    pub entry_price: String,
+    #[serde(rename = "markPrice")]
+    pub mark_price: String,
 }
 
 impl ExecutionClient {
@@ -20,12 +32,16 @@ impl ExecutionClient {
             .build()
             .expect("Failed to build HTTP client");
 
+        // Rate limit: 10 req/s, burst 10
+        let rate_limiter = DefaultDirectRateLimiter::direct(
+            Quota::per_second(nonzero!(10u32)).allow_burst(nonzero!(10u32)),
+        );
+
         Self {
             http_client,
             signer: BinanceSigner::new(api_key, secret_key),
             base_url,
-            rate_limit_count: AtomicUsize::new(0),
-            rate_limit_reset: AtomicU64::new(0),
+            rate_limiter,
         }
     }
 
@@ -37,30 +53,9 @@ impl ExecutionClient {
         s.to_string()
     }
 
-    /// Checks if we are exceeding the internal rate limit (10 req/sec).
-    /// Returns true if allowed, false if blocked.
-    fn check_rate_limit(&self) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        let reset_time = self.rate_limit_reset.load(Ordering::Relaxed);
-
-        if now > reset_time {
-            // New second window
-            self.rate_limit_reset.store(now, Ordering::Relaxed);
-            self.rate_limit_count.store(1, Ordering::Relaxed);
-            true
-        } else {
-            // Same second window
-            let count = self.rate_limit_count.fetch_add(1, Ordering::Relaxed);
-            if count < 10 {
-                true
-            } else {
-                false
-            }
-        }
+    /// Helper to check rate limit asynchronously.
+    async fn await_rate_limit(&self) {
+        self.rate_limiter.until_ready().await;
     }
 
     /// Place an order. If instruction.dry_run == true, return Ok("DRY_RUN_SUCCESS").
@@ -69,9 +64,7 @@ impl ExecutionClient {
             return Ok("DRY_RUN_SUCCESS".to_string());
         }
 
-        if !self.check_rate_limit() {
-            return Err(EngineError::ExchangeError("Internal Rate Limit Exceeded (10 req/s)".to_string()));
-        }
+        self.await_rate_limit().await;
 
         // 1. Build Canonical Query String
         // Order: symbol, side, type, quantity, timeInForce (if Limit), price (if Limit), recvWindow, timestamp
@@ -115,15 +108,19 @@ impl ExecutionClient {
         } else {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_else(|_| format!("Status: {}", status));
+            
+            // Check for Auth errors (-2014, -2015, etc.)
+            if text.contains("-2014") || text.contains("-2015") || text.contains("API-key format invalid") {
+                 return Err(EngineError::ExchangeError(format!("AUTH_ERROR: {}", text)));
+            }
+            
             Err(EngineError::ExchangeError(text))
         }
     }
 
     /// Fetch current position risk (positions).
-    pub async fn get_position_risk(&self) -> Result<String, EngineError> {
-        if !self.check_rate_limit() {
-            return Err(EngineError::ExchangeError("Internal Rate Limit Exceeded".to_string()));
-        }
+    pub async fn sync_positions(&self) -> Result<Vec<PositionRisk>, EngineError> {
+        self.await_rate_limit().await;
 
         let timestamp = chrono::Utc::now().timestamp_millis();
         let query = format!("recvWindow=5000&timestamp={}", timestamp);
@@ -142,46 +139,81 @@ impl ExecutionClient {
 
         if resp.status().is_success() {
             let text = resp.text().await.map_err(|e| EngineError::ExchangeError(e.to_string()))?;
-            Ok(text)
+            let positions: Vec<PositionRisk> = serde_json::from_str(&text)
+                .map_err(|e| EngineError::ExchangeError(format!("Failed to parse positions: {}", e)))?;
+            Ok(positions)
         } else {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_else(|_| format!("Status: {}", status));
+            
+             // Check for Auth errors
+            if text.contains("-2014") || text.contains("-2015") || text.contains("API-key format invalid") {
+                 return Err(EngineError::ExchangeError(format!("AUTH_ERROR: {}", text)));
+            }
+
             Err(EngineError::ExchangeError(text))
         }
     }
 
     /// Cancel all open orders for a symbol.
-    pub async fn cancel_all_orders(&self, symbol: &str) -> Result<String, EngineError> {
-        // Note: We might want to bypass rate limit for emergency cancel, but for now we enforce it.
-        // If we are spamming, we might get banned anyway.
-        if !self.check_rate_limit() {
-             return Err(EngineError::ExchangeError("Internal Rate Limit Exceeded".to_string()));
+    /// Retries up to 3 times on network failure.
+    pub async fn cancel_all_orders(&self, symbol: &str) -> Result<(), EngineError> {
+        let max_retries = 3;
+        let mut last_error = String::new();
+
+        for attempt in 1..=max_retries {
+            self.await_rate_limit().await;
+
+            let timestamp = chrono::Utc::now().timestamp_millis();
+            let query = format!("symbol={}&recvWindow=5000&timestamp={}", symbol.to_uppercase(), timestamp);
+            let signature = self.signer.sign(&query);
+            let signed_body = format!("{}&signature={}", query, signature);
+
+            let url = format!("{}/fapi/v1/allOpenOrders", self.base_url);
+            let headers = self.signer.get_headers();
+
+            // Use a shorter timeout for cancel requests to avoid hanging shutdown
+            let client_with_timeout = match Client::builder().timeout(Duration::from_secs(5)).build() {
+                Ok(c) => c,
+                Err(_) => self.http_client.clone(), // Fallback
+            };
+
+            let result = client_with_timeout
+                .delete(&url)
+                .headers(headers.clone())
+                .body(signed_body)
+                .send()
+                .await;
+
+            match result {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        return Ok(());
+                    } else if resp.status().as_u16() == 400 {
+                        let text = resp.text().await.unwrap_or_default();
+                        if text.contains("No open order") || text.contains("-2011") {
+                             // "Unknown order sent" or similar often means no orders to cancel
+                             return Ok(());
+                        }
+                        last_error = text;
+                    } else {
+                        let status = resp.status();
+                        let text = resp.text().await.unwrap_or_else(|_| format!("Status: {}", status));
+                        last_error = text;
+                    }
+                }
+                Err(e) => {
+                    last_error = e.to_string();
+                }
+            }
+            
+            if attempt < max_retries {
+                // Exponential backoff: 100ms, 200ms, 400ms
+                tokio::time::sleep(Duration::from_millis(100 * 2u64.pow(attempt as u32 - 1))).await;
+            }
         }
 
-        let timestamp = chrono::Utc::now().timestamp_millis();
-        let query = format!("symbol={}&recvWindow=5000&timestamp={}", symbol.to_uppercase(), timestamp);
-        let signature = self.signer.sign(&query);
-        let signed_body = format!("{}&signature={}", query, signature);
-
-        let url = format!("{}/fapi/v1/allOpenOrders", self.base_url);
-        let headers = self.signer.get_headers();
-
-        let resp = self.http_client
-            .delete(&url)
-            .headers(headers)
-            .body(signed_body) // DELETE with body is supported by Binance
-            .send()
-            .await
-            .map_err(|e| EngineError::ExchangeError(e.to_string()))?;
-
-        if resp.status().is_success() {
-            let text = resp.text().await.map_err(|e| EngineError::ExchangeError(e.to_string()))?;
-            Ok(text)
-        } else {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_else(|_| format!("Status: {}", status));
-            Err(EngineError::ExchangeError(text))
-        }
+        Err(EngineError::ExchangeError(format!("Failed to cancel orders after {} attempts: {}", max_retries, last_error)))
     }
 
     pub fn sign_query(&self, query: &str) -> String {

@@ -1,7 +1,6 @@
 mod config;
 
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use tracing_subscriber::fmt::format::FmtSpan;
 use execution::ExecutionClient;
 
 #[tokio::main]
@@ -38,14 +37,28 @@ async fn main() -> anyhow::Result<()> {
 
     // 4. Position Sync (The "Am I Holding the Bag?" Check)
     tracing::info!("Syncing positions...");
-    match execution_client.get_position_risk().await {
-        Ok(positions) => tracing::info!("Positions synced: {}", positions),
-        Err(e) => tracing::warn!("Failed to sync positions: {}", e),
+    match execution_client.sync_positions().await {
+        Ok(positions) => {
+            tracing::info!("Position sync OK: {} positions found", positions.len());
+            for p in positions {
+                // Log minimal info only
+                if p.position_amt.parse::<f64>().unwrap_or(0.0).abs() > 0.0 {
+                    tracing::info!("  Active Position: {} = {}", p.symbol, p.position_amt);
+                }
+            }
+        },
+        Err(e) => {
+            tracing::warn!("Failed to sync positions: {}", e);
+            if e.to_string().contains("AUTH_ERROR") && config.trading.enabled {
+                tracing::error!("CRITICAL: Authentication failed. Cannot start trading engine.");
+                std::process::exit(1);
+            }
+        },
     }
 
     // 5. Setup Ring Buffers
     // Market Data: Feed -> Strategy
-    let (mut producer, consumer) = rtrb::RingBuffer::<common::MarketEvent>::new(4096);
+    let (mut _producer, consumer) = rtrb::RingBuffer::<common::MarketEvent>::new(4096);
     // Signals: Strategy -> Execution
     let (signal_producer, mut signal_consumer) = rtrb::RingBuffer::<common::TradeInstruction>::new(4096);
 
@@ -60,11 +73,45 @@ async fn main() -> anyhow::Result<()> {
     // Ctrl+C Handler
     let shutdown_signal = shutdown.clone();
     let shutdown_tx_ctrlc = shutdown_tx.clone();
+    let execution_client_ctrlc = execution_client.clone();
+    
+    // Guard to ensure cleanup runs only once
+    let cleanup_done = Arc::new(AtomicBool::new(false));
+    
     ctrlc::set_handler(move || {
-        tracing::warn!(">>>> CTRL+C RECEIVED <<<<   DISARMING TRADING SYSTEM IMMEDIATELY");
-        risk_engine::disarm();
-        shutdown_signal.store(true, Ordering::Relaxed);
+        if cleanup_done.swap(true, Ordering::SeqCst) {
+            // Already running cleanup
+            return;
+        }
+
+        tracing::warn!(">>>> CTRL+C RECEIVED <<<<   INITIATING GRACEFUL SHUTDOWN");
+        
+        // 1. Stop Feed (via broadcast)
         let _ = shutdown_tx_ctrlc.send(());
+        
+        // 2. Drain Strategy (via flag)
+        shutdown_signal.store(true, Ordering::SeqCst);
+        
+        // 3. Cancel Orders (Synchronous block_on)
+        tracing::warn!("Cancelling all open orders...");
+        let handle = tokio::runtime::Handle::current();
+        handle.block_on(async {
+            match execution_client_ctrlc.cancel_all_orders("BTCUSDT").await {
+                Ok(_) => tracing::info!("All orders cancelled successfully."),
+                Err(e) => tracing::error!("Failed to cancel orders: {}", e),
+            }
+        });
+        
+        // 4. Disarm Risk Engine
+        tracing::warn!("Disarming Risk Engine...");
+        risk_engine::disarm();
+        
+        tracing::info!("Shutdown sequence complete. Exiting.");
+        // We don't exit here immediately to allow main thread to join handles if needed,
+        // but typically ctrlc handler is the end. 
+        // Ideally we let the main loop exit, but ctrlc runs in a separate thread.
+        // We will let the process exit naturally or force it if needed.
+        std::process::exit(0);
     }).expect("Error setting Ctrl-C handler");
 
     // 7. Spawn Strategy Thread (Sync OS Thread)
@@ -115,13 +162,6 @@ async fn main() -> anyhow::Result<()> {
     }
     
     let _ = tokio::join!(execution_handle, feed_handle);
-
-    // 11. Cancel-On-Exit (The Dead Man's Switch)
-    tracing::warn!("Attempting to cancel all open orders...");
-    match execution_client.cancel_all_orders("BTCUSDT").await {
-        Ok(resp) => tracing::info!("Cancel All response: {}", resp),
-        Err(e) => tracing::error!("Failed to cancel orders: {}", e),
-    }
 
     tracing::info!("Trading Engine shutdown complete.");
     Ok(())

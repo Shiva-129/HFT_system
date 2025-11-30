@@ -3,6 +3,7 @@ use std::fs;
 use anyhow::Context;
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct AppConfig {
     pub network: NetworkConfig,
     pub trading: TradingConfig,
@@ -10,6 +11,7 @@ pub struct AppConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct NetworkConfig {
     pub name: String,
     pub rest_url: String,
@@ -25,6 +27,7 @@ pub struct TradingConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct RiskConfig {
     pub max_position: f64,
     pub max_drawdown: f64,

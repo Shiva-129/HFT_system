@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
     let (raw_tx, mut raw_rx) = mpsc::channel::<String>(10_000);
 
     // Spawn writer task
-    let writer_handle = tokio::spawn(async move {
+    let _writer_handle = tokio::spawn(async move {
         let mut count = 0;
         while let Some(line) = raw_rx.recv().await {
             if let Err(e) = file.write_all(format!("{}\n", line).as_bytes()).await {
