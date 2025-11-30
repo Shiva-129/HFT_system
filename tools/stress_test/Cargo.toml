@@ -1,0 +1,8 @@
+[package]
+name = "stress_test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rtrb = "0.3"
+common = { workspace = true }

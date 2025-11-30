@@ -8,7 +8,8 @@ members = [
     "crates/risk_engine",
     "crates/telemetry",
     "tools/replay",
-    "tools/recorder"
+    "tools/recorder",
+    "tools/stress_test"
 ]
 resolver = "2"
 
