@@ -23,11 +23,19 @@ pub fn is_armed() -> bool {
     TRADING_ENABLED.load(Ordering::SeqCst)
 }
 
-pub struct RiskEngine;
+pub struct RiskEngine {
+    max_order_size: f64,
+    max_daily_loss: f64,
+    current_daily_loss: f64,
+}
 
 impl RiskEngine {
-    pub fn new() -> Self {
-        RiskEngine
+    pub fn new(max_order_size: f64, max_daily_loss: f64) -> Self {
+        Self {
+            max_order_size,
+            max_daily_loss,
+            current_daily_loss: 0.0,
+        }
     }
 
     pub fn check(&mut self, instruction: &TradeInstruction) -> Result<(), EngineError> {
@@ -41,18 +49,43 @@ impl RiskEngine {
             return Ok(());
         }
 
-        // 3. Quantity
+        // 3. Quantity (Basic Sanity)
         if instruction.quantity <= 0.0 {
             return Err(EngineError::RiskViolation(
                 "Zero/Negative Quantity".to_string(),
             ));
         }
 
-        // 4. Price
+        // 4. Price (Basic Sanity)
         if instruction.price <= 0.0 {
             return Err(EngineError::RiskViolation("Invalid Price".to_string()));
         }
 
+        // 5. Max Order Size (Hard Rule)
+        if instruction.quantity > self.max_order_size {
+            return Err(EngineError::RiskViolation(format!(
+                "Order size {} exceeds limit {}",
+                instruction.quantity, self.max_order_size
+            )));
+        }
+
+        // 6. Max Daily Loss (Hard Rule)
+        // Note: This is a simplified check. Real PnL tracking requires fill data.
+        // For now, we check if we've already hit the limit.
+        if self.current_daily_loss >= self.max_daily_loss {
+            return Err(EngineError::RiskViolation(format!(
+                "Daily loss limit {} reached",
+                self.max_daily_loss
+            )));
+        }
+
         Ok(())
+    }
+    
+    // Helper to update loss (to be called when fills are processed)
+    pub fn update_loss(&mut self, loss: f64) {
+        if loss > 0.0 {
+            self.current_daily_loss += loss;
+        }
     }
 }

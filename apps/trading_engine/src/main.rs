@@ -42,7 +42,13 @@ async fn main() -> anyhow::Result<()> {
         config.network.rest_url.clone(),
     ));
 
-    // 4. Position Sync (The "Am I Holding the Bag?" Check)
+    // 4. Initialize Risk Engine
+    let mut risk_engine = risk_engine::RiskEngine::new(
+        config.risk.max_order_size,
+        config.risk.max_drawdown, // Using max_drawdown as max_daily_loss for now
+    );
+
+    // 5. Position Sync (The "Am I Holding the Bag?" Check)
     tracing::info!("Syncing positions...");
     match execution_client.sync_positions().await {
         Ok(positions) => {
@@ -141,6 +147,13 @@ async fn main() -> anyhow::Result<()> {
             match signal_consumer.pop() {
                 Ok(instruction) => {
                     tracing::info!("Received instruction: {:?}", instruction);
+                    
+                    // Risk Check
+                    if let Err(e) = risk_engine.check(&instruction) {
+                        tracing::error!("Risk Rejection: {}", e);
+                        continue;
+                    }
+
                     match execution_client_task.place_order(&instruction).await {
                         Ok(response) => tracing::info!("Order Placed: {}", response),
                         Err(e) => tracing::error!("Order Failed: {}", e),

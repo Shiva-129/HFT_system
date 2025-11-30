@@ -31,6 +31,7 @@ pub struct TradingConfig {
 pub struct RiskConfig {
     pub max_position: f64,
     pub max_drawdown: f64,
+    pub max_order_size: f64,
 }
 
 pub fn load(path: &str) -> Result<AppConfig, anyhow::Error> {

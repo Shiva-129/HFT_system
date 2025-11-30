@@ -1,9 +1,10 @@
 use common::{MarketEvent, OrderType, Side, TradeInstruction};
-use rtrb::{Consumer, Producer, PushError};
+use rtrb::{Consumer, Producer};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::time::{Duration, Instant};
 
 /// Runs the synchronous strategy consumer loop on the current OS thread.
 /// This function MUST NOT return under normal operation; it should read from the consumer
@@ -14,6 +15,7 @@ pub fn run(
     shutdown: Arc<AtomicBool>,
 ) {
     tracing::info!("Strategy thread started");
+    let mut last_trade_time = Instant::now();
 
     while !shutdown.load(Ordering::Relaxed) {
         match consumer.pop() {
@@ -28,23 +30,22 @@ pub fn run(
                     "event processed"
                 );
 
-                // Ping-Pong Logic: If price > 50,000, buy 0.01
-                if event.price > 50_000.0 {
+                // Ping-Pong Logic: If price > 50,000, buy 0.01 (throttled)
+                if event.price > 50_000.0 && last_trade_time.elapsed() > Duration::from_secs(10) {
                     let instr = TradeInstruction {
                         symbol: event.symbol.clone(),
                         side: Side::Buy,
-                        order_type: OrderType::Limit,
+                        order_type: OrderType::Market,
                         price: event.price,
                         quantity: 0.01,
                         timestamp: common::now_nanos(),
-                        dry_run: true,
+                        dry_run: true, // Safety first
                     };
-
-                    match producer.push(instr) {
-                        Ok(_) => {}
-                        Err(PushError::Full(_)) => {
-                            tracing::warn!("Output Queue Full - Dropping TradeInstruction");
-                        }
+                    
+                    if let Err(e) = producer.push(instr) {
+                        tracing::warn!("Failed to push instruction: {:?}", e);
+                    } else {
+                        last_trade_time = Instant::now();
                     }
                 }
             }

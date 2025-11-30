@@ -12,3 +12,4 @@ dry_run = true
 [risk]
 max_position = 1.0
 max_drawdown = 0.05
+max_order_size = 0.1
