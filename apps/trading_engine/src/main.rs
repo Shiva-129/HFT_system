@@ -4,10 +4,10 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_span_events(FmtSpan::CLOSE)
-        .init();
+    // Initialize Telemetry (Logging)
+    // Must be done before any other logging or signal handlers.
+    // The guard must be kept alive to ensure logs are flushed.
+    let _guard = telemetry::init("./logs");
 
     tracing::info!("Starting Trading Engine...");
 
@@ -15,6 +15,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Create Ring Buffer (Capacity 4096 - Power of two for efficiency)
     let (mut producer, consumer) = rtrb::RingBuffer::<common::MarketEvent>::new(4096);
+    
+    // Create Signal Ring Buffer (Strategy -> Execution)
+    let (signal_producer, _signal_consumer) = rtrb::RingBuffer::<common::TradeInstruction>::new(4096);
 
     // Shutdown signal for the main loop
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -34,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Start Strategy Thread (OS thread)
     let strategy_handle = std::thread::spawn(move || {
-        strategy::run(consumer, shutdown_clone);
+        strategy::run(consumer, signal_producer, shutdown_clone);
     });
 
     // Start Feed Task (Tokio)

@@ -10,7 +10,8 @@ members = [
     "tools/replay",
     "tools/recorder",
     "tools/stress_test",
-    "crates/risk_engine"
+    "crates/risk_engine",
+    "crates/telemetry"
 ]
 resolver = "2"
 
@@ -28,3 +29,4 @@ common = { path = "crates/common" }
 feed_handler = { path = "crates/feed_handler" }
 strategy = { path = "crates/strategy" }
 risk_engine = { path = "crates/risk_engine" }
+telemetry = { path = "crates/telemetry" }
