@@ -16,8 +16,11 @@ fn test_end_to_end_pipeline() {
 
     // 2. Spawn Strategy
     let s_flag = shutdown.clone();
+    let is_running = Arc::new(AtomicBool::new(true)); // Always running for test
+    let r_flag = is_running.clone();
+    
     let strategy_handle = std::thread::spawn(move || {
-        strategy::run(market_cons, trade_prod, s_flag);
+        strategy::run(market_cons, trade_prod, s_flag, r_flag, true, false);
     });
 
     // 3. Inject Events

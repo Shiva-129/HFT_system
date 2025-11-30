@@ -24,7 +24,7 @@ impl TryFrom<BinanceAggTrade> for MarketEvent {
             .map_err(|e| EngineError::ParseError(format!("Invalid quantity: {}", e)))?;
 
         Ok(MarketEvent {
-            symbol: trade.s.to_ascii_uppercase(),
+            symbol: trade.s.to_ascii_uppercase().into(),
             price,
             quantity,
             exchange_timestamp: trade.T,

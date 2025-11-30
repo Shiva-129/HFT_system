@@ -1,0 +1,14 @@
+[package]
+name = "benchmark"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.28", features = ["full"] }
+anyhow = "1.0"
+hdrhistogram = "7.5"
+rtrb = "0.3"
+common = { workspace = true }
+feed_handler = { workspace = true }
+strategy = { workspace = true }
+core_affinity = "0.8"

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HFT Cockpit</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans">
+    <div class="container mx-auto p-4">
+        <header class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
+            <h1 class="text-2xl font-bold text-blue-400">HFT Engine Cockpit</h1>
+            <div id="connection-status" class="flex items-center space-x-2">
+                <span class="h-3 w-3 rounded-full bg-red-500" id="conn-dot"></span>
+                <span class="text-sm text-gray-400" id="conn-text">Disconnected</span>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Status Panel -->
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 text-gray-300">Engine Status</h2>
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-400">State:</span>
+                        <span id="engine-state" class="font-mono font-bold text-red-400">STOPPED</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-400">Trades Executed:</span>
+                        <span id="trade-count" class="font-mono text-xl">0</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-400">Realized P&L:</span>
+                        <span id="pnl" class="font-mono text-xl font-bold text-gray-200">0.00</span>
+                    </div>
+                </div>
+                
+                <div class="mt-8 flex space-x-4">
+                    <button onclick="sendCommand('START')" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded transition">
+                        START ENGINE
+                    </button>
+                    <button onclick="sendCommand('STOP')" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded transition">
+                        STOP ENGINE
+                    </button>
+                </div>
+            </div>
+
+            <!-- Risk Config Panel -->
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 text-gray-300">Risk Configuration</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-gray-400 text-sm mb-1">Max Daily Loss Limit</label>
+                        <input type="number" id="max-loss" class="w-full bg-gray-700 text-white border border-gray-600 rounded px-3 py-2 focus:outline-none focus:border-blue-500" step="0.01">
+                    </div>
+                    <div>
+                        <label class="block text-gray-400 text-sm mb-1">Target Profit</label>
+                        <input type="number" id="target-profit" class="w-full bg-gray-700 text-white border border-gray-600 rounded px-3 py-2 focus:outline-none focus:border-blue-500" step="0.01">
+                    </div>
+                    <button onclick="updateConfig()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mt-2 transition">
+                        Update Limits
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3000/api';
+        const connDot = document.getElementById('conn-dot');
+        const connText = document.getElementById('conn-text');
+        const engineState = document.getElementById('engine-state');
+        const tradeCount = document.getElementById('trade-count');
+        const pnlDisplay = document.getElementById('pnl');
+        const maxLossInput = document.getElementById('max-loss');
+        const targetProfitInput = document.getElementById('target-profit');
+
+        let isConnected = false;
+
+        async function fetchStatus() {
+            try {
+                const response = await fetch(`${API_URL}/status`);
+                if (!response.ok) throw new Error('Network response was not ok');
+                const data = await response.json();
+                
+                // Update Connection
+                if (!isConnected) {
+                    isConnected = true;
+                    connDot.classList.remove('bg-red-500');
+                    connDot.classList.add('bg-green-500');
+                    connText.innerText = 'Connected';
+                }
+
+                // Update State
+                if (data.running) {
+                    engineState.innerText = 'RUNNING';
+                    engineState.classList.remove('text-red-400');
+                    engineState.classList.add('text-green-400');
+                } else {
+                    engineState.innerText = 'STOPPED';
+                    engineState.classList.remove('text-green-400');
+                    engineState.classList.add('text-red-400');
+                }
+
+                // Update Metrics
+                tradeCount.innerText = data.trade_count;
+                pnlDisplay.innerText = data.pnl.toFixed(2);
+                
+                // Color PnL
+                if (data.pnl > 0) {
+                    pnlDisplay.className = 'font-mono text-xl font-bold text-green-400';
+                } else if (data.pnl < 0) {
+                    pnlDisplay.className = 'font-mono text-xl font-bold text-red-400';
+                } else {
+                    pnlDisplay.className = 'font-mono text-xl font-bold text-gray-200';
+                }
+
+                // Update Inputs (only if not focused to avoid overwriting user typing)
+                if (document.activeElement !== maxLossInput) maxLossInput.value = data.max_loss_limit;
+                if (document.activeElement !== targetProfitInput) targetProfitInput.value = data.target_profit;
+
+            } catch (error) {
+                isConnected = false;
+                connDot.classList.remove('bg-green-500');
+                connDot.classList.add('bg-red-500');
+                connText.innerText = 'Disconnected';
+                console.error('Fetch error:', error);
+            }
+        }
+
+        async function sendCommand(cmd) {
+            try {
+                const response = await fetch(`${API_URL}/control`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: cmd })
+                });
+                if (!response.ok) alert('Command failed');
+                fetchStatus(); // Refresh immediately
+            } catch (e) {
+                alert('Error sending command');
+            }
+        }
+
+        async function updateConfig() {
+            const maxLoss = parseFloat(maxLossInput.value);
+            const targetProfit = parseFloat(targetProfitInput.value);
+            
+            try {
+                const response = await fetch(`${API_URL}/config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ max_loss: maxLoss, target_profit: targetProfit })
+                });
+                if (!response.ok) alert('Update failed');
+                else alert('Limits updated!');
+                fetchStatus();
+            } catch (e) {
+                alert('Error updating config');
+            }
+        }
+
+        // Poll every 1 second
+        setInterval(fetchStatus, 1000);
+        fetchStatus(); // Initial call
+    </script>
+</body>
+</html>

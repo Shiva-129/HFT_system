@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
+use smartstring::alias::String as SmartString;
 
 /// Side of the order (Buy or Sell)
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Side {
     Buy,
     Sell,
@@ -9,6 +11,7 @@ pub enum Side {
 
 /// Type of the order (Limit or Market)
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OrderType {
     Limit,
     Market,
@@ -17,7 +20,7 @@ pub enum OrderType {
 /// Represents a market event (e.g., a trade or quote update)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MarketEvent {
-    pub symbol: String,
+    pub symbol: SmartString,
     pub price: f64,
     pub quantity: f64,
     /// Raw Unix timestamp in milliseconds, as provided by the exchange.
@@ -29,7 +32,7 @@ pub struct MarketEvent {
 /// Represents an instruction to execute a trade
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradeInstruction {
-    pub symbol: String,
+    pub symbol: SmartString,
     pub side: Side,
     pub order_type: OrderType,
     pub price: f64,
@@ -45,7 +48,7 @@ mod tests {
     #[test]
     fn test_market_event_serialization() {
         let event = MarketEvent {
-            symbol: "BTCUSDT".to_string(),
+            symbol: SmartString::from("BTCUSDT"),
             price: 50000.0,
             quantity: 1.5,
             exchange_timestamp: 1630000000000,

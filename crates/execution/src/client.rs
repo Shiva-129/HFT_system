@@ -69,10 +69,10 @@ impl ExecutionClient {
         // 1. Build Canonical Query String
         // Order: symbol, side, type, quantity, timeInForce (if Limit), price (if Limit), recvWindow, timestamp
         let mut query = format!(
-            "symbol={}&side={:?}&type={:?}&quantity={}",
+            "symbol={}&side={}&type={}&quantity={}",
             instruction.symbol.to_uppercase(),
-            instruction.side,
-            instruction.order_type,
+            format!("{:?}", instruction.side).to_uppercase(),
+            format!("{:?}", instruction.order_type).to_uppercase(),
             Self::fmt_decimal(instruction.quantity)
         );
 
