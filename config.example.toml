@@ -1,14 +1,14 @@
-﻿[general]
-env = "TESTNET"
-
-[network]
-exchange_wss = "wss://stream.binance.com:9443/ws"
+﻿[network]
+name = "testnet"
+rest_url = "https://testnet.binancefuture.com"
+ws_url = "wss://stream.binancefuture.com/ws"
 
 [trading]
-enabled = false
+api_key = "dummy_api_key"
+secret_key = "dummy_secret_key"
+enabled = true
 dry_run = true
-pairs = ["BTCUSDT", "ETHUSDT"]
 
 [risk]
-max_order_value_usd = 100.0
-max_daily_loss_usd = 50.0
+max_position = 1.0
+max_drawdown = 0.05

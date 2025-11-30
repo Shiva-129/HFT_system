@@ -11,7 +11,8 @@ members = [
     "tools/recorder",
     "tools/stress_test",
     "crates/risk_engine",
-    "crates/telemetry"
+    "crates/telemetry",
+    "crates/execution"
 ]
 resolver = "2"
 
@@ -30,3 +31,4 @@ feed_handler = { path = "crates/feed_handler" }
 strategy = { path = "crates/strategy" }
 risk_engine = { path = "crates/risk_engine" }
 telemetry = { path = "crates/telemetry" }
+execution = { path = "crates/execution" }

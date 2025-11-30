@@ -1,83 +1,126 @@
+mod config;
+
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use std::time::Duration;
 use tracing_subscriber::fmt::format::FmtSpan;
+use execution::ExecutionClient;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize Telemetry (Logging)
-    // Must be done before any other logging or signal handlers.
-    // The guard must be kept alive to ensure logs are flushed.
+    // 1. Load Config
+    let config = match config::load("config.toml") {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("CRITICAL: {}", e);
+            eprintln!("Please copy config.example.toml to config.toml and configure it.");
+            std::process::exit(1);
+        }
+    };
+
+    // 2. Initialize Telemetry
     let _guard = telemetry::init("./logs");
-
     tracing::info!("Starting Trading Engine...");
+    tracing::info!("Config loaded: Network={}, DryRun={}", config.network.name, config.trading.dry_run);
 
-
-
-    // Create Ring Buffer (Capacity 4096 - Power of two for efficiency)
-    let (mut producer, consumer) = rtrb::RingBuffer::<common::MarketEvent>::new(4096);
+    // 3. Initialize Execution Client
+    let api_key = config.trading.api_key.clone().unwrap_or_default();
+    let secret_key = config.trading.secret_key.clone().unwrap_or_default();
     
-    // Create Signal Ring Buffer (Strategy -> Execution)
-    let (signal_producer, _signal_consumer) = rtrb::RingBuffer::<common::TradeInstruction>::new(4096);
+    if config.trading.enabled && (api_key.is_empty() || secret_key.is_empty()) {
+        tracing::error!("Trading enabled but API keys missing!");
+        std::process::exit(1);
+    }
 
-    // Shutdown signal for the main loop
+    let execution_client = Arc::new(ExecutionClient::new(
+        api_key, 
+        secret_key, 
+        config.network.rest_url.clone()
+    ));
+
+    // 4. Position Sync (The "Am I Holding the Bag?" Check)
+    tracing::info!("Syncing positions...");
+    match execution_client.get_position_risk().await {
+        Ok(positions) => tracing::info!("Positions synced: {}", positions),
+        Err(e) => tracing::warn!("Failed to sync positions: {}", e),
+    }
+
+    // 5. Setup Ring Buffers
+    // Market Data: Feed -> Strategy
+    let (mut producer, consumer) = rtrb::RingBuffer::<common::MarketEvent>::new(4096);
+    // Signals: Strategy -> Execution
+    let (signal_producer, mut signal_consumer) = rtrb::RingBuffer::<common::TradeInstruction>::new(4096);
+
+    // 6. Shutdown Signals
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
+    
+    // Create a notification channel for async tasks to know when to stop
+    let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
+    let mut shutdown_rx_execution = shutdown_tx.subscribe();
 
-    // We need a way to set shutdown=true when Ctrl+C happens.
-    // Since `ctrlc` crate takes a closure `FnMut`, and we want to capture `shutdown`, we can do that!
-    // `ctrlc::set_handler` takes `F: Fn() -> () + Send + Sync + 'static`.
-    // `Arc` is Send + Sync. So we CAN move a clone of shutdown into the handler!
+    // Ctrl+C Handler
     let shutdown_signal = shutdown.clone();
+    let shutdown_tx_ctrlc = shutdown_tx.clone();
     ctrlc::set_handler(move || {
         tracing::warn!(">>>> CTRL+C RECEIVED <<<<   DISARMING TRADING SYSTEM IMMEDIATELY");
         risk_engine::disarm();
         shutdown_signal.store(true, Ordering::Relaxed);
+        let _ = shutdown_tx_ctrlc.send(());
     }).expect("Error setting Ctrl-C handler");
 
-
-    // Start Strategy Thread (OS thread)
+    // 7. Spawn Strategy Thread (Sync OS Thread)
     let strategy_handle = std::thread::spawn(move || {
         strategy::run(consumer, signal_producer, shutdown_clone);
     });
 
-    // Start Feed Task (Tokio)
-    let symbol = "btcusdt";
-    tracing::info!("Connecting to feed for {}...", symbol);
-    
-    let mut feed_rx = feed_handler::connect(symbol, None).await?;
-
-    // ARM THE SYSTEM
-    // This ensures no accidental orders slip through while the system is still booting.
-    risk_engine::arm();
-
-    let feed_shutdown = shutdown.clone();
-    
-    // Feed processing loop
-    while !feed_shutdown.load(Ordering::Relaxed) {
-        match tokio::time::timeout(Duration::from_millis(100), feed_rx.recv()).await {
-            Ok(Some(event)) => {
-                match producer.push(event) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        tracing::warn!("ring buffer full — dropping tick");
-                    }
-                }
-            }
-            Ok(None) => {
-                tracing::warn!("Feed channel closed unexpectedly");
+    // 8. Spawn Execution Task (Async Tokio Task)
+    let execution_client_task = execution_client.clone();
+    let execution_handle = tokio::spawn(async move {
+        tracing::info!("Execution task started");
+        loop {
+            // Check for shutdown signal
+            if shutdown_rx_execution.try_recv().is_ok() {
                 break;
             }
-            Err(_) => {
-                continue;
+
+            match signal_consumer.pop() {
+                Ok(instruction) => {
+                    tracing::info!("Received instruction: {:?}", instruction);
+                    match execution_client_task.place_order(&instruction).await {
+                        Ok(response) => tracing::info!("Order Placed: {}", response),
+                        Err(e) => tracing::error!("Order Failed: {}", e),
+                    }
+                }
+                Err(_) => {
+                    // Queue empty, yield
+                    tokio::task::yield_now().await;
+                }
             }
         }
+        tracing::info!("Execution task shutting down");
+    });
+
+    // 9. Spawn Feed Task (Tokio)
+    let mut shutdown_rx_feed = shutdown_tx.subscribe();
+    let feed_handle = tokio::spawn(async move {
+        // Placeholder for feed connection
+        tracing::info!("Feed task started (placeholder)");
+        // Wait for shutdown signal
+        let _ = shutdown_rx_feed.recv().await;
+        tracing::info!("Feed task shutting down");
+    });
+
+    // 10. Wait for Shutdown
+    if let Err(e) = strategy_handle.join() {
+        tracing::error!("Strategy thread panicked: {:?}", e);
     }
+    
+    let _ = tokio::join!(execution_handle, feed_handle);
 
-    tracing::info!("Feed loop exited. Waiting for strategy thread to join...");
-
-    match strategy_handle.join() {
-        Ok(_) => tracing::info!("Strategy thread joined successfully."),
-        Err(e) => tracing::error!("Strategy thread panicked: {:?}", e),
+    // 11. Cancel-On-Exit (The Dead Man's Switch)
+    tracing::warn!("Attempting to cancel all open orders...");
+    match execution_client.cancel_all_orders("BTCUSDT").await {
+        Ok(resp) => tracing::info!("Cancel All response: {}", resp),
+        Err(e) => tracing::error!("Failed to cancel orders: {}", e),
     }
 
     tracing::info!("Trading Engine shutdown complete.");
