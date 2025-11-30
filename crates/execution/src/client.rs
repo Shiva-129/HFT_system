@@ -1,10 +1,10 @@
 use crate::signer::BinanceSigner;
-use common::{EngineError, TradeInstruction, OrderType};
-use reqwest::Client;
-use std::time::Duration;
+use common::{EngineError, OrderType, TradeInstruction};
 use governor::{DefaultDirectRateLimiter, Quota};
 use nonzero_ext::nonzero;
+use reqwest::Client;
 use serde::Deserialize;
+use std::time::Duration;
 
 pub struct ExecutionClient {
     http_client: Client,
@@ -93,7 +93,8 @@ impl ExecutionClient {
         let url = format!("{}/fapi/v1/order", self.base_url);
         let headers = self.signer.get_headers();
 
-        let resp = self.http_client
+        let resp = self
+            .http_client
             .post(&url)
             .headers(headers)
             .body(signed_body)
@@ -103,17 +104,26 @@ impl ExecutionClient {
 
         // 4. Handle Response
         if resp.status().is_success() {
-            let text = resp.text().await.map_err(|e| EngineError::ExchangeError(e.to_string()))?;
+            let text = resp
+                .text()
+                .await
+                .map_err(|e| EngineError::ExchangeError(e.to_string()))?;
             Ok(text)
         } else {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_else(|_| format!("Status: {}", status));
-            
+            let text = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| format!("Status: {}", status));
+
             // Check for Auth errors (-2014, -2015, etc.)
-            if text.contains("-2014") || text.contains("-2015") || text.contains("API-key format invalid") {
-                 return Err(EngineError::ExchangeError(format!("AUTH_ERROR: {}", text)));
+            if text.contains("-2014")
+                || text.contains("-2015")
+                || text.contains("API-key format invalid")
+            {
+                return Err(EngineError::ExchangeError(format!("AUTH_ERROR: {}", text)));
             }
-            
+
             Err(EngineError::ExchangeError(text))
         }
     }
@@ -130,7 +140,8 @@ impl ExecutionClient {
         let url = format!("{}/fapi/v2/positionRisk?{}", self.base_url, signed_query);
         let headers = self.signer.get_headers();
 
-        let resp = self.http_client
+        let resp = self
+            .http_client
             .get(&url)
             .headers(headers)
             .send()
@@ -138,17 +149,27 @@ impl ExecutionClient {
             .map_err(|e| EngineError::ExchangeError(e.to_string()))?;
 
         if resp.status().is_success() {
-            let text = resp.text().await.map_err(|e| EngineError::ExchangeError(e.to_string()))?;
-            let positions: Vec<PositionRisk> = serde_json::from_str(&text)
-                .map_err(|e| EngineError::ExchangeError(format!("Failed to parse positions: {}", e)))?;
+            let text = resp
+                .text()
+                .await
+                .map_err(|e| EngineError::ExchangeError(e.to_string()))?;
+            let positions: Vec<PositionRisk> = serde_json::from_str(&text).map_err(|e| {
+                EngineError::ExchangeError(format!("Failed to parse positions: {}", e))
+            })?;
             Ok(positions)
         } else {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_else(|_| format!("Status: {}", status));
-            
-             // Check for Auth errors
-            if text.contains("-2014") || text.contains("-2015") || text.contains("API-key format invalid") {
-                 return Err(EngineError::ExchangeError(format!("AUTH_ERROR: {}", text)));
+            let text = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| format!("Status: {}", status));
+
+            // Check for Auth errors
+            if text.contains("-2014")
+                || text.contains("-2015")
+                || text.contains("API-key format invalid")
+            {
+                return Err(EngineError::ExchangeError(format!("AUTH_ERROR: {}", text)));
             }
 
             Err(EngineError::ExchangeError(text))
@@ -165,7 +186,11 @@ impl ExecutionClient {
             self.await_rate_limit().await;
 
             let timestamp = chrono::Utc::now().timestamp_millis();
-            let query = format!("symbol={}&recvWindow=5000&timestamp={}", symbol.to_uppercase(), timestamp);
+            let query = format!(
+                "symbol={}&recvWindow=5000&timestamp={}",
+                symbol.to_uppercase(),
+                timestamp
+            );
             let signature = self.signer.sign(&query);
             let signed_body = format!("{}&signature={}", query, signature);
 
@@ -173,10 +198,11 @@ impl ExecutionClient {
             let headers = self.signer.get_headers();
 
             // Use a shorter timeout for cancel requests to avoid hanging shutdown
-            let client_with_timeout = match Client::builder().timeout(Duration::from_secs(5)).build() {
-                Ok(c) => c,
-                Err(_) => self.http_client.clone(), // Fallback
-            };
+            let client_with_timeout =
+                match Client::builder().timeout(Duration::from_secs(5)).build() {
+                    Ok(c) => c,
+                    Err(_) => self.http_client.clone(), // Fallback
+                };
 
             let result = client_with_timeout
                 .delete(&url)
@@ -192,13 +218,16 @@ impl ExecutionClient {
                     } else if resp.status().as_u16() == 400 {
                         let text = resp.text().await.unwrap_or_default();
                         if text.contains("No open order") || text.contains("-2011") {
-                             // "Unknown order sent" or similar often means no orders to cancel
-                             return Ok(());
+                            // "Unknown order sent" or similar often means no orders to cancel
+                            return Ok(());
                         }
                         last_error = text;
                     } else {
                         let status = resp.status();
-                        let text = resp.text().await.unwrap_or_else(|_| format!("Status: {}", status));
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| format!("Status: {}", status));
                         last_error = text;
                     }
                 }
@@ -206,14 +235,17 @@ impl ExecutionClient {
                     last_error = e.to_string();
                 }
             }
-            
+
             if attempt < max_retries {
                 // Exponential backoff: 100ms, 200ms, 400ms
                 tokio::time::sleep(Duration::from_millis(100 * 2u64.pow(attempt as u32 - 1))).await;
             }
         }
 
-        Err(EngineError::ExchangeError(format!("Failed to cancel orders after {} attempts: {}", max_retries, last_error)))
+        Err(EngineError::ExchangeError(format!(
+            "Failed to cancel orders after {} attempts: {}",
+            max_retries, last_error
+        )))
     }
 
     pub fn sign_query(&self, query: &str) -> String {
@@ -230,9 +262,9 @@ mod tests {
     #[tokio::test]
     async fn test_place_order_dry_run() {
         let client = ExecutionClient::new(
-            "dummy_key".to_string(), 
+            "dummy_key".to_string(),
             "dummy_secret".to_string(),
-            "https://testnet.binancefuture.com".to_string()
+            "https://testnet.binancefuture.com".to_string(),
         );
 
         let instr = TradeInstruction {
@@ -248,7 +280,7 @@ mod tests {
         let result = client.place_order(&instr).await;
         assert_eq!(result.unwrap(), "DRY_RUN_SUCCESS");
     }
-    
+
     #[test]
     fn test_fmt_decimal() {
         assert_eq!(ExecutionClient::fmt_decimal(0.01000000), "0.01");

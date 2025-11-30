@@ -1,7 +1,10 @@
 mod config;
 
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use execution::ExecutionClient;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -18,21 +21,25 @@ async fn main() -> anyhow::Result<()> {
     // 2. Initialize Telemetry
     let _guard = telemetry::init("./logs");
     tracing::info!("Starting Trading Engine...");
-    tracing::info!("Config loaded: Network={}, DryRun={}", config.network.name, config.trading.dry_run);
+    tracing::info!(
+        "Config loaded: Network={}, DryRun={}",
+        config.network.name,
+        config.trading.dry_run
+    );
 
     // 3. Initialize Execution Client
     let api_key = config.trading.api_key.clone().unwrap_or_default();
     let secret_key = config.trading.secret_key.clone().unwrap_or_default();
-    
+
     if config.trading.enabled && (api_key.is_empty() || secret_key.is_empty()) {
         tracing::error!("Trading enabled but API keys missing!");
         std::process::exit(1);
     }
 
     let execution_client = Arc::new(ExecutionClient::new(
-        api_key, 
-        secret_key, 
-        config.network.rest_url.clone()
+        api_key,
+        secret_key,
+        config.network.rest_url.clone(),
     ));
 
     // 4. Position Sync (The "Am I Holding the Bag?" Check)
@@ -46,26 +53,27 @@ async fn main() -> anyhow::Result<()> {
                     tracing::info!("  Active Position: {} = {}", p.symbol, p.position_amt);
                 }
             }
-        },
+        }
         Err(e) => {
             tracing::warn!("Failed to sync positions: {}", e);
             if e.to_string().contains("AUTH_ERROR") && config.trading.enabled {
                 tracing::error!("CRITICAL: Authentication failed. Cannot start trading engine.");
                 std::process::exit(1);
             }
-        },
+        }
     }
 
     // 5. Setup Ring Buffers
     // Market Data: Feed -> Strategy
     let (mut _producer, consumer) = rtrb::RingBuffer::<common::MarketEvent>::new(4096);
     // Signals: Strategy -> Execution
-    let (signal_producer, mut signal_consumer) = rtrb::RingBuffer::<common::TradeInstruction>::new(4096);
+    let (signal_producer, mut signal_consumer) =
+        rtrb::RingBuffer::<common::TradeInstruction>::new(4096);
 
     // 6. Shutdown Signals
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
-    
+
     // Create a notification channel for async tasks to know when to stop
     let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
     let mut shutdown_rx_execution = shutdown_tx.subscribe();
@@ -74,10 +82,10 @@ async fn main() -> anyhow::Result<()> {
     let shutdown_signal = shutdown.clone();
     let shutdown_tx_ctrlc = shutdown_tx.clone();
     let execution_client_ctrlc = execution_client.clone();
-    
+
     // Guard to ensure cleanup runs only once
     let cleanup_done = Arc::new(AtomicBool::new(false));
-    
+
     ctrlc::set_handler(move || {
         if cleanup_done.swap(true, Ordering::SeqCst) {
             // Already running cleanup
@@ -85,13 +93,13 @@ async fn main() -> anyhow::Result<()> {
         }
 
         tracing::warn!(">>>> CTRL+C RECEIVED <<<<   INITIATING GRACEFUL SHUTDOWN");
-        
+
         // 1. Stop Feed (via broadcast)
         let _ = shutdown_tx_ctrlc.send(());
-        
+
         // 2. Drain Strategy (via flag)
         shutdown_signal.store(true, Ordering::SeqCst);
-        
+
         // 3. Cancel Orders (Synchronous block_on)
         tracing::warn!("Cancelling all open orders...");
         let handle = tokio::runtime::Handle::current();
@@ -101,18 +109,19 @@ async fn main() -> anyhow::Result<()> {
                 Err(e) => tracing::error!("Failed to cancel orders: {}", e),
             }
         });
-        
+
         // 4. Disarm Risk Engine
         tracing::warn!("Disarming Risk Engine...");
         risk_engine::disarm();
-        
+
         tracing::info!("Shutdown sequence complete. Exiting.");
         // We don't exit here immediately to allow main thread to join handles if needed,
-        // but typically ctrlc handler is the end. 
+        // but typically ctrlc handler is the end.
         // Ideally we let the main loop exit, but ctrlc runs in a separate thread.
         // We will let the process exit naturally or force it if needed.
         std::process::exit(0);
-    }).expect("Error setting Ctrl-C handler");
+    })
+    .expect("Error setting Ctrl-C handler");
 
     // 7. Spawn Strategy Thread (Sync OS Thread)
     let strategy_handle = std::thread::spawn(move || {
@@ -160,7 +169,7 @@ async fn main() -> anyhow::Result<()> {
     if let Err(e) = strategy_handle.join() {
         tracing::error!("Strategy thread panicked: {:?}", e);
     }
-    
+
     let _ = tokio::join!(execution_handle, feed_handle);
 
     tracing::info!("Trading Engine shutdown complete.");

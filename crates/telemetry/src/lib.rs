@@ -1,9 +1,9 @@
-﻿use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, EnvFilter, prelude::*};
 use std::fs;
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// Initialize telemetry (logging).
-/// 
+///
 /// - Creates `log_dir` if it doesn't exist.
 /// - Sets up a daily rolling file appender (non-blocking).
 /// - Configures a console layer (Compact, INFO+).
@@ -23,10 +23,7 @@ pub fn init(log_dir: &str) -> WorkerGuard {
         .with_target(false)
         .with_level(true)
         .compact()
-        .with_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info"))
-        );
+        .with_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")));
 
     // 4. File Layer (Structured JSON)
     // Captures more detail (DEBUG level by default).
@@ -53,25 +50,26 @@ mod tests {
     fn test_telemetry_init() {
         let log_dir = "test_logs";
         let _guard = init(log_dir);
-        
+
         tracing::info!("Test log message");
-        
+
         // Give it a moment to flush (async writer)
         std::thread::sleep(std::time::Duration::from_millis(100));
-        
+
         // Verify file creation (simple check)
         let paths = fs::read_dir(log_dir).unwrap();
         let mut found = false;
         for path in paths {
             let p = path.unwrap().path();
-            if p.extension().unwrap_or_default() == "log" || p.to_string_lossy().contains("hft.log") {
-                 found = true;
-                 break;
+            if p.extension().unwrap_or_default() == "log" || p.to_string_lossy().contains("hft.log")
+            {
+                found = true;
+                break;
             }
         }
         // Cleanup
         let _ = fs::remove_dir_all(log_dir);
-        
+
         assert!(found, "Log file should have been created");
     }
 }

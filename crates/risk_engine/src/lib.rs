@@ -1,4 +1,4 @@
-﻿use common::{EngineError, TradeInstruction};
+use common::{EngineError, TradeInstruction};
 use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -43,7 +43,9 @@ impl RiskEngine {
 
         // 3. Quantity
         if instruction.quantity <= 0.0 {
-            return Err(EngineError::RiskViolation("Zero/Negative Quantity".to_string()));
+            return Err(EngineError::RiskViolation(
+                "Zero/Negative Quantity".to_string(),
+            ));
         }
 
         // 4. Price

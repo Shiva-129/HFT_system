@@ -1,12 +1,15 @@
 use common::{MarketEvent, Side};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 #[test]
 fn test_end_to_end_pipeline() {
     // 1. Setup
     let shutdown = Arc::new(AtomicBool::new(false));
-    
+
     // Create Queues
     let (mut market_prod, market_cons) = rtrb::RingBuffer::<MarketEvent>::new(32);
     let (trade_prod, mut trade_cons) = rtrb::RingBuffer::<common::TradeInstruction>::new(32);
@@ -18,7 +21,7 @@ fn test_end_to_end_pipeline() {
     });
 
     // 3. Inject Events
-    
+
     // Event A: Should NOT trigger (Price <= 50,000)
     let event_a = MarketEvent {
         symbol: "BTCUSDT".into(),

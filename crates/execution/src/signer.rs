@@ -22,7 +22,10 @@ impl BinanceSigner {
         if let Ok(val) = HeaderValue::from_str(&self.api_key) {
             headers.insert("X-MBX-APIKEY", val);
         }
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/x-www-form-urlencoded"));
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("application/x-www-form-urlencoded"),
+        );
         headers
     }
 

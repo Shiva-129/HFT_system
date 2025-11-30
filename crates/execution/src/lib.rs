@@ -1,5 +1,5 @@
-﻿pub mod signer;
 pub mod client;
+pub mod signer;
 
-pub use signer::BinanceSigner;
 pub use client::ExecutionClient;
+pub use signer::BinanceSigner;

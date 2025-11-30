@@ -1,4 +1,4 @@
-use common::{MarketEvent, TradeInstruction, Side, OrderType};
+use common::{MarketEvent, OrderType, Side, TradeInstruction};
 use rtrb::{Consumer, Producer, PushError};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -20,14 +20,14 @@ pub fn run(
             Ok(event) => {
                 let now = common::now_nanos();
                 let latency_ns = now.saturating_sub(event.received_timestamp);
-                
+
                 tracing::info!(
-                    symbol = %event.symbol, 
-                    price = event.price, 
-                    latency_ns = latency_ns, 
+                    symbol = %event.symbol,
+                    price = event.price,
+                    latency_ns = latency_ns,
                     "event processed"
                 );
-                
+
                 // Ping-Pong Logic: If price > 50,000, buy 0.01
                 if event.price > 50_000.0 {
                     let instr = TradeInstruction {
@@ -39,7 +39,7 @@ pub fn run(
                         timestamp: common::now_nanos(),
                         dry_run: true,
                     };
-                    
+
                     match producer.push(instr) {
                         Ok(_) => {}
                         Err(PushError::Full(_)) => {
