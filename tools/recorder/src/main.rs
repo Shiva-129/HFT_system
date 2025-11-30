@@ -1,9 +1,9 @@
 use anyhow::Context;
+use std::path::Path;
+use std::time::Duration;
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
-use std::path::Path;
-use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -11,15 +11,19 @@ async fn main() -> anyhow::Result<()> {
     let path = Path::new(path_str);
 
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).await.context("Failed to create fixtures directory")?;
+        fs::create_dir_all(parent)
+            .await
+            .context("Failed to create fixtures directory")?;
     }
 
-    let mut file = File::create(path).await.context("Failed to create raw_ticks.jsonl")?;
-    
+    let mut file = File::create(path)
+        .await
+        .context("Failed to create raw_ticks.jsonl")?;
+
     println!("Recording to {}...", path_str);
 
     let (raw_tx, mut raw_rx) = mpsc::channel::<String>(10_000);
-    
+
     // Spawn writer task
     let writer_handle = tokio::spawn(async move {
         let mut count = 0;
@@ -43,9 +47,9 @@ async fn main() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_secs(60)).await;
 
     println!("Recording complete.");
-    
+
     // Give writer task a moment to flush
     tokio::time::sleep(Duration::from_millis(500)).await;
-    
+
     Ok(())
 }

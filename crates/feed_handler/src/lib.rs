@@ -1,18 +1,21 @@
-﻿pub mod binance;
+pub mod binance;
 pub use binance::*;
 
-use common::{MarketEvent, EngineError};
+use common::{EngineError, MarketEvent};
+use futures_util::StreamExt;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use futures_util::StreamExt;
 use url::Url;
-use std::time::Duration;
 
-pub async fn connect(symbol: &str, raw_tx: Option<mpsc::Sender<String>>) -> Result<mpsc::Receiver<MarketEvent>, EngineError> {
+pub async fn connect(
+    symbol: &str,
+    raw_tx: Option<mpsc::Sender<String>>,
+) -> Result<mpsc::Receiver<MarketEvent>, EngineError> {
     let (tx, rx) = mpsc::channel::<MarketEvent>(10_000);
     let symbol_lower = symbol.to_lowercase();
     let url_str = format!("wss://fstream.binance.com/ws/{}@aggTrade", symbol_lower);
-    
+
     // Validate URL upfront
     if Url::parse(&url_str).is_err() {
         return Err(EngineError::ParseError(format!("Invalid URL: {}", url_str)));
@@ -29,7 +32,7 @@ pub async fn connect(symbol: &str, raw_tx: Option<mpsc::Sender<String>>) -> Resu
                 Ok((ws_stream, _)) => {
                     tracing::info!("Connected to Binance for {}", symbol_lower);
                     backoff = Duration::from_millis(100); // Reset backoff
-                    
+
                     let (_, mut read) = ws_stream.split();
 
                     while let Some(msg) = read.next().await {

@@ -1,12 +1,12 @@
-﻿use anyhow::Context;
+use anyhow::Context;
+use feed_handler::parse_trade;
+use serde_json::json;
+use std::path::Path;
+use std::time::Instant;
 use tokio::fs::{self, File};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_stream::wrappers::LinesStream;
 use tokio_stream::StreamExt;
-use std::path::Path;
-use std::time::Instant;
-use feed_handler::parse_trade;
-use serde_json::json;
 
 async fn generate_sample_data() -> anyhow::Result<()> {
     let path_str = "../../data/fixtures/raw_ticks.jsonl";
@@ -17,16 +17,20 @@ async fn generate_sample_data() -> anyhow::Result<()> {
     }
 
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).await.context("Failed to create fixtures directory")?;
+        fs::create_dir_all(parent)
+            .await
+            .context("Failed to create fixtures directory")?;
     }
 
-    let mut file = File::create(path).await.context("Failed to create raw_ticks.jsonl")?;
+    let mut file = File::create(path)
+        .await
+        .context("Failed to create raw_ticks.jsonl")?;
     use tokio::io::AsyncWriteExt;
 
     for i in 0..100 {
         let price = 50000.0 + (i as f64 * 0.5);
         let timestamp = 1700000000000i64 + (i * 100);
-        
+
         let record = json!({
             "e": "aggTrade",
             "s": "BTCUSDT",
@@ -48,7 +52,9 @@ async fn main() -> anyhow::Result<()> {
     generate_sample_data().await?;
 
     let path = "../../data/fixtures/raw_ticks.jsonl";
-    let file = File::open(path).await.context("Failed to open raw_ticks.jsonl")?;
+    let file = File::open(path)
+        .await
+        .context("Failed to open raw_ticks.jsonl")?;
     let reader = BufReader::new(file);
     let mut lines = LinesStream::new(reader.lines());
 

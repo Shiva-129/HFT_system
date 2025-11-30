@@ -53,7 +53,8 @@ mod tests {
         };
 
         let serialized = serde_json::to_string(&event).expect("Failed to serialize");
-        let deserialized: MarketEvent = serde_json::from_str(&serialized).expect("Failed to deserialize");
+        let deserialized: MarketEvent =
+            serde_json::from_str(&serialized).expect("Failed to deserialize");
 
         assert_eq!(event, deserialized);
     }

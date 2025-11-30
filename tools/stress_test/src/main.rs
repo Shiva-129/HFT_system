@@ -1,8 +1,8 @@
 use common::MarketEvent;
-use rtrb::{PushError, PopError};
+use rtrb::{PopError, PushError};
+use std::hint;
 use std::thread;
 use std::time::Instant;
-use std::hint;
 
 const TOTAL_MESSAGES: usize = 10_000_000;
 const QUEUE_CAPACITY: usize = 4096;
@@ -62,7 +62,7 @@ fn main() {
     let duration = start.elapsed();
     let duration_secs = duration.as_secs_f64();
     let duration_ns = duration.as_nanos() as f64;
-    
+
     let throughput = TOTAL_MESSAGES as f64 / duration_secs;
     let avg_ns = duration_ns / TOTAL_MESSAGES as f64;
 

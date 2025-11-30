@@ -1,4 +1,7 @@
-﻿use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::Duration;
 use tracing_subscriber::fmt::format::FmtSpan;
 
@@ -41,13 +44,13 @@ async fn main() -> anyhow::Result<()> {
     // We connect to a hardcoded symbol for now as per requirements
     let symbol = "btcusdt";
     tracing::info!("Connecting to feed for {}...", symbol);
-    
+
     // Note: connect returns a Receiver. We need to bridge this to the ring buffer.
     // We pass None for raw_tx as we don't need raw recording here.
     let mut feed_rx = feed_handler::connect(symbol, None).await?;
 
     let feed_shutdown = shutdown.clone();
-    
+
     // Feed processing loop
     while !feed_shutdown.load(Ordering::Relaxed) {
         // Use timeout to allow checking shutdown flag periodically if no ticks come in
