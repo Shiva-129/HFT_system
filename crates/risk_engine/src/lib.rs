@@ -81,7 +81,7 @@ impl RiskEngine {
 
         Ok(())
     }
-    
+
     // Helper to update loss (to be called when fills are processed)
     pub fn update_loss(&mut self, loss: f64) {
         if loss > 0.0 {

@@ -42,7 +42,7 @@ pub fn run(
                         timestamp: common::now_nanos(),
                         dry_run: true, // Safety first
                     };
-                    
+
                     if let Err(e) = producer.push(instr) {
                         tracing::warn!("Failed to push instruction: {:?}", e);
                     } else {

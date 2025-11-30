@@ -147,7 +147,7 @@ async fn main() -> anyhow::Result<()> {
             match signal_consumer.pop() {
                 Ok(instruction) => {
                     tracing::info!("Received instruction: {:?}", instruction);
-                    
+
                     // Risk Check
                     if let Err(e) = risk_engine.check(&instruction) {
                         tracing::error!("Risk Rejection: {}", e);
