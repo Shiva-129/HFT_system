@@ -25,6 +25,14 @@ pub struct PositionRisk {
     pub mark_price: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AccountBalance {
+    pub asset: String,
+    pub balance: String,
+    #[serde(rename = "availableBalance")]
+    pub available_balance: String,
+}
+
 impl ExecutionClient {
     pub fn new(api_key: String, secret_key: String, base_url: String) -> Self {
         let http_client = Client::builder()
@@ -42,6 +50,54 @@ impl ExecutionClient {
             signer: BinanceSigner::new(api_key, secret_key),
             base_url,
             rate_limiter,
+        }
+    }
+
+    /// Fetch account balance.
+    pub async fn get_account_balance(&self) -> Result<Vec<AccountBalance>, EngineError> {
+        self.await_rate_limit().await;
+
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let query = format!("recvWindow=5000&timestamp={}", timestamp);
+        let signature = self.signer.sign(&query);
+        let signed_query = format!("{}&signature={}", query, signature);
+
+        let url = format!("{}/fapi/v2/balance?{}", self.base_url, signed_query);
+        let headers = self.signer.get_headers();
+
+        let resp = self
+            .http_client
+            .get(&url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| EngineError::ExchangeError(e.to_string()))?;
+
+        if resp.status().is_success() {
+            let text = resp
+                .text()
+                .await
+                .map_err(|e| EngineError::ExchangeError(e.to_string()))?;
+            let balances: Vec<AccountBalance> = serde_json::from_str(&text).map_err(|e| {
+                EngineError::ExchangeError(format!("Failed to parse balances: {}", e))
+            })?;
+            Ok(balances)
+        } else {
+            let status = resp.status();
+            let text = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| format!("Status: {}", status));
+
+            // Check for Auth errors
+            if text.contains("-2014")
+                || text.contains("-2015")
+                || text.contains("API-key format invalid")
+            {
+                return Err(EngineError::ExchangeError(format!("AUTH_ERROR: {}", text)));
+            }
+
+            Err(EngineError::ExchangeError(text))
         }
     }
 
