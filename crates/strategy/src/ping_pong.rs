@@ -36,13 +36,13 @@ impl PingPongStrategy {
             };
 
             self.last_trade_time = Instant::now();
-            
+
             // Toggle side
             self.next_side = match self.next_side {
                 Side::Buy => Side::Sell,
                 Side::Sell => Side::Buy,
             };
-            
+
             tracing::info!("Strategy: Switched next side to {:?}", self.next_side);
 
             Some(instr)

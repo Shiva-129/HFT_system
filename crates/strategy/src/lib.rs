@@ -22,7 +22,7 @@ pub fn run(
     disable_throttle: bool,
 ) {
     tracing::info!("Strategy thread started");
-    
+
     // Initialize Strategy
     let mut strategy = PingPongStrategy::new(dry_run);
 

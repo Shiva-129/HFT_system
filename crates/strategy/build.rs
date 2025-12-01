@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
-use std::path::Path;
 use std::io::Write;
+use std::path::Path;
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
