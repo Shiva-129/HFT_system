@@ -4,12 +4,19 @@ rest_url = "https://testnet.binancefuture.com"
 ws_url = "wss://stream.binancefuture.com/ws"
 
 [trading]
-api_key = "dummy_api_key"
-secret_key = "dummy_secret_key"
+api_key = ""
+secret_key = ""
 enabled = true
-dry_run = true
+dry_run = false
+fee_maker = 0.0002
+fee_taker = 0.0005
+
+# New Strategy Settings
+strategy_window = 100    # Increase window to capture larger moves (default 50)
+strategy_threshold = 1.0 # Lower base threshold (default 2.0)
 
 [risk]
 max_position = 1.0
 max_drawdown = 0.05
+
 max_order_size = 0.1
