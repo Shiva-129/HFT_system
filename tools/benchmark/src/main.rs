@@ -48,6 +48,7 @@ fn bench_e2e(ticks: &[String]) -> Histogram<u64> {
     // Spawn Strategy (No Throttle)
     let s_shutdown = shutdown.clone();
     let s_running = is_running.clone();
+    let active_strategy = Arc::new(parking_lot::Mutex::new("PING_PONG".to_string()));
     std::thread::spawn(move || {
         // Pin to the last available core
         if let Some(core_ids) = core_affinity::get_core_ids() {
@@ -55,8 +56,21 @@ fn bench_e2e(ticks: &[String]) -> Histogram<u64> {
                 core_affinity::set_for_current(*core_id);
             }
         }
-        strategy::run(market_cons, trade_prod, s_shutdown, s_running, true, true);
-        // dry_run=true, disable_throttle=true
+        strategy::run(
+            market_cons,
+            trade_prod,
+            s_shutdown,
+            s_running,
+            active_strategy,
+            true,  // dry_run
+            true,  // disable_throttle
+            0.0002, // fee_maker
+            0.0005, // fee_taker
+            50,    // strategy_window
+            2.0,   // strategy_threshold
+            10.0,  // price_threshold
+            3.0,   // volume_multiplier
+        );
     });
 
     for i in 0..iterations {

@@ -170,6 +170,7 @@ dependencies = [
  "core_affinity",
  "feed_handler",
  "hdrhistogram",
+ "parking_lot",
  "rtrb",
  "strategy",
  "tokio",

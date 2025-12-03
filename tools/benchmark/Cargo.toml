@@ -12,3 +12,4 @@ common = { workspace = true }
 feed_handler = { workspace = true }
 strategy = { workspace = true }
 core_affinity = "0.8"
+parking_lot = "0.12"
