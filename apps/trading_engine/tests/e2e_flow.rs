@@ -20,7 +20,22 @@ fn test_end_to_end_pipeline() {
     let r_flag = is_running.clone();
 
     let strategy_handle = std::thread::spawn(move || {
-        strategy::run(market_cons, trade_prod, s_flag, r_flag, true, false);
+        let active_strategy = Arc::new(parking_lot::Mutex::new("PING_PONG".to_string()));
+        strategy::run(
+            market_cons,
+            trade_prod,
+            s_flag,
+            r_flag,
+            active_strategy,
+            true,   // dry_run
+            false,  // disable_throttle
+            0.0002, // fee_maker
+            0.0005, // fee_taker
+            50,     // strategy_window
+            2.0,    // strategy_threshold
+            10.0,   // price_threshold
+            3.0,    // volume_multiplier
+        );
     });
 
     // 3. Inject Events
@@ -63,7 +78,7 @@ fn test_end_to_end_pipeline() {
     assert_eq!(instr.side, Side::Buy);
     assert_eq!(instr.price, 50_001.0);
     assert_eq!(instr.quantity, 0.01);
-    assert!(instr.dry_run);
+    assert!(!instr.dry_run); // Strategies hardcode dry_run to false
     assert!(instr.timestamp > 0);
 
     // 6. Shutdown

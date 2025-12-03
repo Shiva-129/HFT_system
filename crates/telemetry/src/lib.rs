@@ -44,7 +44,7 @@ pub fn init(log_dir: &str) -> WorkerGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
+
 
     #[test]
     fn test_telemetry_init() {
