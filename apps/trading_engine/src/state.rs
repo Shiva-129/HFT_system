@@ -21,18 +21,19 @@ pub struct EngineState {
     pub target_profit: Mutex<f64>,
 
     pub initial_balance: Mutex<f64>,
+    pub available_balance: Mutex<f64>,
 
     // --- Telemetry ---
     pub last_tick_timestamp: AtomicU64, // Epoch ms
     pub last_order_rtt_ns: AtomicU64,
     pub current_position: Mutex<f64>,
     pub avg_entry_price: Mutex<f64>,
+    pub last_price: Mutex<f64>,
 
     // History (Capped)
     pub pnl_history: Mutex<VecDeque<(u64, f64)>>, // (ts_ms, pnl)
     pub recent_logs: Mutex<VecDeque<String>>,
-
-    pub active_strategy: Mutex<String>,
+    pub active_strategy: Arc<Mutex<String>>,
 
     // Speed Meter
     pub ticks_counter: AtomicUsize,
@@ -51,15 +52,17 @@ impl EngineState {
             max_loss_limit: Mutex::new(0.0),
             target_profit: Mutex::new(0.0),
             initial_balance: Mutex::new(0.0),
+            available_balance: Mutex::new(0.0),
 
             last_tick_timestamp: AtomicU64::new(0),
             last_order_rtt_ns: AtomicU64::new(0),
             current_position: Mutex::new(0.0),
             avg_entry_price: Mutex::new(0.0),
+            last_price: Mutex::new(0.0),
 
             pnl_history: Mutex::new(VecDeque::with_capacity(5000)),
             recent_logs: Mutex::new(VecDeque::with_capacity(200)),
-            active_strategy: Mutex::new("PING_PONG".to_string()),
+            active_strategy: Arc::new(Mutex::new("PING_PONG".to_string())),
 
             ticks_counter: AtomicUsize::new(0),
             cycles_counter: AtomicUsize::new(0),
@@ -76,7 +79,7 @@ impl EngineState {
         logs.push_back(msg);
     }
 
-    pub fn update_from_trade(&self, qty: f64, price: f64) -> f64 {
+    pub fn update_from_trade(&self, qty: f64, price: f64, fee: f64) -> f64 {
         let mut pos = self.current_position.lock();
         let mut avg_entry = self.avg_entry_price.lock();
         let mut realized_pnl = 0.0;
@@ -93,12 +96,6 @@ impl EngineState {
                 qty.abs() // Partial close
             };
 
-            // PnL = (Exit - Entry) * Qty (for Long)
-            // PnL = (Entry - Exit) * Qty (for Short)
-            // Generalized: (Price - AvgEntry) * SignedClosingQty?
-            // Let's stick to: Long Close -> (Price - Entry) * Qty
-            // Short Close -> (Entry - Price) * Qty
-
             if old_pos > 0.0 {
                 // Long closing
                 realized_pnl = (price - *avg_entry) * closing_qty;
@@ -107,6 +104,9 @@ impl EngineState {
                 realized_pnl = (*avg_entry - price) * closing_qty;
             }
         }
+
+        // Deduct Fee (Always)
+        realized_pnl -= fee;
 
         // Update Avg Entry Price
         if new_pos == 0.0 {
@@ -125,7 +125,8 @@ impl EngineState {
         *pos = new_pos;
 
         // Update Global PnL
-        if realized_pnl != 0.0 {
+        // We update PnL if there is realized PnL OR if there is a fee (even on open)
+        if realized_pnl != 0.0 || fee > 0.0 {
             let mut pnl_lock = self.current_pnl.lock();
             *pnl_lock += realized_pnl;
 

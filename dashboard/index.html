@@ -4,9 +4,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HFT Cockpit</title>
+    <title>HFT Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
     <style>
         .glass {
             background: rgba(17, 24, 39, 0.7);
@@ -17,6 +19,7 @@
         /* Custom Scrollbar */
         ::-webkit-scrollbar {
             width: 8px;
+            height: 8px;
         }
 
         ::-webkit-scrollbar-track {
@@ -30,6 +33,48 @@
 
         ::-webkit-scrollbar-thumb:hover {
             background: #6b7280;
+        }
+
+        /* Sticky Timeline Headers */
+        .header-year {
+            position: sticky;
+            top: 0px;
+            z-index: 30;
+            background: #111827;
+            /* gray-900 */
+            border-bottom: 1px solid #374151;
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            color: #9ca3af;
+        }
+
+        .header-month {
+            position: sticky;
+            top: 25px;
+            /* Height of year header approx */
+            z-index: 20;
+            background: #1f2937;
+            /* gray-800 */
+            border-bottom: 1px solid #374151;
+            padding: 2px 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: #9ca3af;
+        }
+
+        .header-day {
+            position: sticky;
+            top: 48px;
+            /* Height of year + month approx */
+            z-index: 10;
+            background: #374151;
+            /* gray-700 */
+            border-bottom: 1px solid #4b5563;
+            padding: 2px 16px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            color: #d1d5db;
         }
     </style>
 </head>
@@ -117,64 +162,73 @@
                 </select>
             </div>
 
+            <!-- System Logs -->
+            <div class="glass rounded-xl p-5">
+                <h2 class="text-sm font-semibold text-gray-400 mb-2">System Logs</h2>
+                <div id="logs-container"
+                    class="h-[150px] overflow-y-auto font-mono text-xs space-y-1 p-2 bg-gray-900/50 rounded border border-gray-800">
+                    <!-- Logs injected here -->
+                </div>
+            </div>
+
         </div>
 
         <!-- Middle Column: Active Position & Chart (6 cols) -->
         <div class="col-span-12 lg:col-span-6 space-y-6">
-            <!-- Active Position -->
-            <div class="glass rounded-xl p-5 relative overflow-hidden group h-full flex flex-col">
-                <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                    <svg class="w-16 h-16 text-white" fill="currentColor" viewBox="0 0 24 24">
-                        <path
-                            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.31-8.86c-1.77-.45-2.34-.94-2.34-1.67 0-.84.79-1.43 2.1-1.43 1.38 0 1.9.66 1.94 1.64h1.71c-.05-1.34-.87-2.57-2.49-2.97V5H10.9v1.69c-1.51.32-2.72 1.3-2.72 2.81 0 1.79 1.49 2.69 3.66 3.21 1.95.46 2.34 1.15 2.34 1.87 0 .53-.39 1.39-2.1 1.39-1.6 0-2.23-.72-2.32-1.64H8.04c.1 1.7 1.36 2.66 2.86 2.97V19h2.34v-1.67c1.52-.29 2.72-1.16 2.73-2.77-.01-2.2-1.9-2.96-3.66-3.42z" />
-                    </svg>
+            <!-- Stats Row -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="glass rounded-xl p-4 flex flex-col items-center justify-center">
+                    <span class="text-xs text-gray-400 uppercase tracking-wider">Total PnL</span>
+                    <span id="current-pnl" class="text-2xl font-mono font-bold text-gray-500">--</span>
                 </div>
-                <h2 class="text-sm font-semibold text-gray-400 mb-1">Active Position</h2>
-                <div class="flex items-baseline gap-2">
-                    <span id="position-amt" class="text-3xl font-mono font-bold text-white">0.00</span>
-                    <span class="text-sm text-gray-500">BTC</span>
+                <div class="glass rounded-xl p-4 flex flex-col items-center justify-center">
+                    <span class="text-xs text-gray-400 uppercase tracking-wider">Unrealized PnL</span>
+                    <span id="unrealized-pnl" class="text-xl font-mono font-bold text-gray-500">--</span>
                 </div>
-                <div class="mt-4 flex flex-col flex-1">
-                    <div class="flex justify-between items-center mb-4">
-                        <h2 class="text-sm font-semibold text-gray-400">Real-time PnL</h2>
-                        <div class="flex items-center gap-2">
-                            <span id="current-pnl" class="text-2xl font-mono font-bold text-white">$0.00</span>
-                        </div>
-                    </div>
-                    <div class="flex-1 relative w-full min-h-[300px]">
-                        <canvas id="pnlChart"></canvas>
-                    </div>
+                <div class="glass rounded-xl p-4 flex flex-col items-center justify-center">
+                    <span class="text-xs text-gray-400 uppercase tracking-wider">Position</span>
+                    <span id="position-amt" class="text-xl font-mono font-bold text-blue-400">0.0000</span>
                 </div>
-
-                <!-- Logs -->
-                <div class="mt-4 pt-4 border-t border-gray-800">
-                    <h2 class="text-sm font-semibold text-gray-400 mb-2">System Logs</h2>
-                    <div id="logs-container"
-                        class="h-[150px] overflow-y-auto font-mono text-xs space-y-1 p-2 bg-gray-900/50 rounded border border-gray-800">
-                        <!-- Logs injected here -->
-                    </div>
+                <div class="glass rounded-xl p-4 flex flex-col items-center justify-center">
+                    <span class="text-xs text-gray-400 uppercase tracking-wider">Available</span>
+                    <span id="available-balance" class="text-xl font-mono font-bold text-emerald-400">--</span>
                 </div>
             </div>
+            <!-- Active Position -->
+            <div class="glass rounded-xl p-5 relative overflow-hidden group h-[500px] flex flex-col">
+                <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <select id="time-range" onchange="handleTimeRangeChange()"
+                        class="bg-gray-800 text-xs text-gray-300 border border-gray-700 rounded px-2 py-1 focus:outline-none focus:border-blue-500">
+                        <option value="SESSION" selected>Current Session</option>
+                        <option value="ALL">All Time</option>
+                        <option value="TODAY">Today</option>
+                        <option value="MONTH">This Month</option>
+                        <option value="YEAR">This Year</option>
+                    </select>
+                    <button onclick="resetZoom()"
+                        class="bg-gray-800 hover:bg-gray-700 text-xs text-gray-300 border border-gray-700 rounded px-2 py-1 transition-colors">
+                        Reset Zoom
+                    </button>
+                </div>
+                <canvas id="pnlChart"></canvas>
+            </div>
+
+        </div>
         </div>
 
         <!-- Right Column: History (3 cols) -->
         <div class="col-span-12 lg:col-span-3">
             <div class="glass rounded-xl p-5 h-full flex flex-col">
-                <h2 class="text-sm font-semibold text-gray-400 mb-4">Recent Trades</h2>
-                <div class="flex-1 overflow-y-auto">
-                    <table class="w-full text-left text-xs">
-                        <thead class="text-gray-500 border-b border-gray-700 sticky top-0 bg-gray-900/90 backdrop-blur">
-                            <tr>
-                                <th class="pb-2">Time</th>
-                                <th class="pb-2">Side</th>
-                                <th class="pb-2 text-right">Price</th>
-                                <th class="pb-2 text-right">Qty</th>
-                            </tr>
-                        </thead>
-                        <tbody id="trades-body" class="divide-y divide-gray-800">
-                            <!-- Trades injected here -->
-                        </tbody>
-                    </table>
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-sm font-semibold text-gray-400">Recent Trades</h2>
+                    <button onclick="clearHistory()"
+                        class="text-xs bg-red-900/30 hover:bg-red-900/50 text-red-400 px-2 py-1 rounded transition-colors">
+                        Clear
+                    </button>
+                </div>
+                <!-- Timeline Container -->
+                <div id="trades-container" class="flex-1 overflow-y-auto relative">
+                    <!-- Trades injected here by JS -->
                 </div>
             </div>
         </div>
@@ -197,12 +251,18 @@
             </div>
         </div>
     </div>
+
     <script>
         // --- State ---
         const API_URL = 'http://localhost:3000/api';
         let pnlChart;
         let lastTradeCount = -1;
         let initialBalance = 1000; // Default fallback
+        const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+        // New State for Filtering
+        let allPnlData = []; // Stores { ts: ms, val: number, label: string }
+        let timeFilter = 'SESSION';
 
         // --- Init ---
         document.addEventListener('DOMContentLoaded', () => {
@@ -212,6 +272,8 @@
             pollHistory();
             setInterval(pollHistory, 2000);
             toggleMaxLoss(); // Initialize max loss toggle state
+            logToUI(`Detected Timezone: ${userTimeZone}`);
+            loadPnlHistory(); // Initial load
         });
 
         // --- Strategy Loading ---
@@ -295,7 +357,24 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     animation: false,
-                    plugins: { legend: { display: false } },
+                    plugins: {
+                        legend: { display: false },
+                        zoom: {
+                            pan: {
+                                enabled: true,
+                                mode: 'xy'
+                            },
+                            zoom: {
+                                wheel: {
+                                    enabled: true,
+                                },
+                                pinch: {
+                                    enabled: true
+                                },
+                                mode: 'xy',
+                            }
+                        }
+                    },
                     scales: {
                         x: {
                             display: true,
@@ -311,21 +390,36 @@
             });
         }
 
+        function resetZoom() {
+            pnlChart.resetZoom();
+        }
+
+        async function handleTimeRangeChange() {
+            await loadPnlHistory();
+        }
+
         async function loadPnlHistory() {
+            const range = document.getElementById('time-range').value;
+            const mode = (range === 'SESSION') ? 'session' : 'historical';
+
             try {
-                const res = await fetch(`${API_URL}/pnl_series`);
+                const res = await fetch(`${API_URL}/pnl_series?mode=${mode}`);
                 const history = await res.json();
 
-                // Reset
-                pnlChart.data.labels = ['Start'];
-                pnlChart.data.datasets[0].data = [initialBalance];
+                // Reset Data
+                allPnlData = [];
 
-                // We don't have exact trade counts for history points easily without full trade history
-                // So we'll just index them 1..N
+                // Add Start Point (approximate TS if needed, using 0 for now as anchor)
+                allPnlData.push({ ts: 0, val: initialBalance, label: 'Start' });
+
                 history.forEach((point, index) => {
+                    const ts = point[0]; // ms
                     const val = point[1];
-                    pnlChart.data.labels.push(`Trade ${index + 1}`);
-                    pnlChart.data.datasets[0].data.push(initialBalance + val);
+                    allPnlData.push({
+                        ts: ts,
+                        val: initialBalance + val,
+                        label: `Trade ${index + 1}` // Or format timestamp
+                    });
                 });
 
                 // Sync trade count from status
@@ -333,12 +427,51 @@
                 const status = await statusRes.json();
                 lastTradeCount = status.trade_count;
 
-                pnlChart.update();
+                applyFilter();
             } catch (e) {
                 console.error("Failed to load history", e);
             }
         }
 
+        function applyFilter() {
+            const range = document.getElementById('time-range').value;
+            const now = Date.now();
+            let cutoff = 0;
+
+            if (range === 'TODAY') {
+                const d = new Date();
+                d.setHours(0, 0, 0, 0);
+                cutoff = d.getTime();
+            } else if (range === 'MONTH') {
+                const d = new Date();
+                d.setDate(1);
+                d.setHours(0, 0, 0, 0);
+                cutoff = d.getTime();
+            } else if (range === 'YEAR') {
+                const d = new Date();
+                d.setMonth(0, 1);
+                d.setHours(0, 0, 0, 0);
+                cutoff = d.getTime();
+            }
+
+            // Filter
+            // Always include "Start" point if cutoff is 0 (ALL), otherwise filter by TS
+            const filtered = allPnlData.filter(p => p.ts >= cutoff || (range === 'ALL' && p.ts === 0));
+
+            // Update Chart
+            pnlChart.data.labels = filtered.map(p => p.label);
+            pnlChart.data.datasets[0].data = filtered.map(p => p.val);
+
+            // Update Color based on last value
+            if (filtered.length > 0) {
+                const lastVal = filtered[filtered.length - 1].val;
+                const isProfit = lastVal >= initialBalance;
+                pnlChart.data.datasets[0].borderColor = isProfit ? '#10b981' : '#f43f5e';
+                pnlChart.data.datasets[0].backgroundColor = isProfit ? 'rgba(16, 185, 129, 0.1)' : 'rgba(244, 63, 94, 0.1)';
+            }
+
+            pnlChart.update();
+        }
         function updateChartBase() {
             loadPnlHistory();
         }
@@ -381,23 +514,43 @@
             pnlEl.innerText = `$${totalValue.toFixed(2)}`;
             pnlEl.className = `text-2xl font-mono font-bold ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`;
 
-            // 3. Update Chart (Trade Driven)
+            // 3. Position Text
+            // 3c. Unrealized PnL
+            if (data.unrealized_pnl !== undefined) {
+                const upnl = data.unrealized_pnl;
+                const el = document.getElementById('unrealized-pnl');
+                if (el) {
+                    el.innerText = `$${upnl.toFixed(2)}`;
+                    el.className = `text-xl font-mono font-bold ${upnl >= 0 ? 'text-green-400' : 'text-red-400'}`;
+                }
+            }
+            if (data.position !== undefined) {
+                document.getElementById('position-amt').innerText = data.position.toFixed(4);
+            }
+
+            // 3b. Available Balance
+            if (data.available_balance !== undefined) {
+                document.getElementById('available-balance').innerText = `$${data.available_balance.toFixed(2)}`;
+            }
+
+            // 4. Update Chart (Trade Driven)
             const currentTradeCount = data.trade_count || 0;
 
             if (lastTradeCount !== -1 && currentTradeCount > lastTradeCount) {
                 // New trade(s) detected
                 for (let i = lastTradeCount + 1; i <= currentTradeCount; i++) {
-                    pnlChart.data.labels.push(`Trade ${i}`);
-                    pnlChart.data.datasets[0].data.push(totalValue);
+                    // Push to Master Data
+                    allPnlData.push({
+                        ts: data.ts || Date.now(),
+                        val: totalValue,
+                        label: `Trade ${i}`
+                    });
                 }
-
-                // Color logic
-                const isProfit = totalValue >= initialBalance;
-                pnlChart.data.datasets[0].borderColor = isProfit ? '#10b981' : '#f43f5e';
-                pnlChart.data.datasets[0].backgroundColor = isProfit ? 'rgba(16, 185, 129, 0.1)' : 'rgba(244, 63, 94, 0.1)';
-
-                pnlChart.update();
                 lastTradeCount = currentTradeCount;
+
+                // Refresh View
+                applyFilter();
+
             } else if (lastTradeCount === -1) {
                 // First sync
                 lastTradeCount = currentTradeCount;
@@ -458,6 +611,18 @@
             }
         }
 
+        async function clearHistory() {
+            if (!confirm('Are you sure you want to clear all trade history?')) return;
+            try {
+                await fetch(`${API_URL}/history`, { method: 'DELETE' });
+                logToUI("Trade history cleared");
+                pollHistory(); // Refresh trades list
+                loadPnlHistory(); // Refresh P&L graph
+            } catch (e) {
+                logToUI(`Error clearing history: ${e.message}`);
+            }
+        }
+
         async function pollHistory() {
             try {
                 // 1. Get History
@@ -477,6 +642,10 @@
                 document.getElementById('position-amt').innerText = status.current_position.toFixed(4);
                 document.getElementById('rtt-display').innerText = `${status.last_order_rtt_ns / 1000} µs`;
 
+                if (status.available_balance) {
+                    document.getElementById('available-balance').innerText = `$${status.available_balance.toFixed(2)}`;
+                }
+
                 // Update Initial Balance if available
                 if (status.initial_balance > 0 && initialBalance !== status.initial_balance) {
                     initialBalance = status.initial_balance;
@@ -492,26 +661,79 @@
         }
 
         function renderTrades(trades) {
-            const tbody = document.getElementById('trades-body');
-            tbody.innerHTML = trades.map(t => `
-                <tr class="hover:bg-gray-800/50 transition-colors">
-                    <td class="py-1 text-gray-400 font-mono">${new Date(t.exchange_ts_ms).toLocaleTimeString()}</td>
-                    <td class="py-1 font-bold ${t.side.includes('Buy') ? 'text-green-400' : 'text-red-400'}">${t.side}</td>
-                    <td class="py-1 text-right font-mono">${t.price.toFixed(2)}</td>
-                    <td class="py-1 text-right font-mono text-gray-300">${t.quantity}</td>
-                </tr>
-            `).join('');
+            const container = document.getElementById('trades-container');
+            if (!container) return;
+
+            // Sort Newest First
+            trades.sort((a, b) => b.exchange_ts_ms - a.exchange_ts_ms);
+
+            let html = '';
+            let currentYear = null;
+            let currentMonth = null;
+            let currentDay = null;
+
+            const monthNames = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP",
+                "OCT", "NOV", "DEC"];
+
+            trades.forEach(t => {
+                const date = new Date(t.exchange_ts_ms);
+                const year = date.getFullYear();
+                const month = monthNames[date.getMonth()];
+                const day = date.getDate();
+
+                // Year Header
+                if (year !== currentYear) {
+                    html += `<div class="header-year">${year}</div>`;
+                    currentYear = year;
+                    currentMonth = null; // Reset lower levels
+                    currentDay = null;
+                }
+
+                // Month Header
+                if (month !== currentMonth) {
+                    html += `<div class="header-month">${month}</div>`;
+                    currentMonth = month;
+                    currentDay = null;
+                }
+
+                // Day Header
+                if (day !== currentDay) {
+                    html += `<div class="header-day">Day ${day}</div>`;
+                    currentDay = day;
+                }
+
+                // Trade Row
+                const timeStr = date.toLocaleTimeString('en-US', { timeZone: userTimeZone, hour12: false });
+                const sideColor = t.side.includes('Buy') ? 'text-green-400' : 'text-red-400';
+
+                html += `
+                <div
+                    class="flex justify-between items-center px-4 py-2 border-b border-gray-800 hover:bg-gray-800/50 transition-colors text-xs">
+                    <div class="flex items-center gap-2 w-20">
+                        <span class="text-gray-500 font-mono">${timeStr}</span>
+                    </div>
+                    <div class="flex-1 font-bold ${sideColor}">${t.side}</div>
+                    <div class="text-right font-mono w-20">${t.price.toFixed(2)}</div>
+                    <div class="text-right font-mono text-gray-400 w-16">${t.quantity}</div>
+                </div>
+                `;
+            });
+
+            container.innerHTML = html;
         }
 
         function renderLogs(logs) {
             const container = document.getElementById('logs-container');
-            container.innerHTML = logs.map(l => `<div class="text-gray-400 border-l-2 border-gray-700 pl-2 hover:border-blue-500 transition-colors">${l}</div>`).join('');
+            container.innerHTML = logs.map(l => `<div
+                class="text-gray-400 border-l-2 border-gray-700 pl-2 hover:border-blue-500 transition-colors">
+                ${l}</div>`).join('');
         }
 
         function logToUI(msg) {
             // Optimistic log
             const container = document.getElementById('logs-container');
-            container.innerHTML += `<div class="text-yellow-400 border-l-2 border-yellow-600 pl-2">${msg}</div>`;
+            container.innerHTML += `<div class="text-yellow-400 border-l-2 border-yellow-600 pl-2">
+                ${msg}</div>`;
             container.scrollTop = container.scrollHeight;
         }
     </script>

@@ -199,4 +199,46 @@ impl TradeStorage {
         // Since main awaits handles, dropping the sender in main will cause the loop to exit
         // and flush remaining buffer.
     }
+
+    pub async fn get_all_trades_asc(&self) -> anyhow::Result<Vec<TradeRecord>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT 
+                exchange_ts_ms, monotonic_ns, symbol, side, price, quantity, pnl, strategy,
+                order_id, exec_id, fee, fee_currency, raw
+            FROM trades 
+            ORDER BY id ASC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut trades = Vec::new();
+        for row in rows {
+            use sqlx::Row;
+            trades.push(TradeRecord {
+                exchange_ts_ms: row.try_get("exchange_ts_ms")?,
+                monotonic_ns: row.try_get::<i64, _>("monotonic_ns")? as u64,
+                symbol: row.try_get("symbol")?,
+                side: row.try_get("side")?,
+                price: row.try_get("price")?,
+                quantity: row.try_get("quantity")?,
+                pnl: row.try_get("pnl")?,
+                strategy: row.try_get("strategy")?,
+                order_id: row.try_get("order_id")?,
+                exec_id: row.try_get("exec_id")?,
+                fee: row.try_get("fee")?,
+                fee_currency: row.try_get("fee_currency")?,
+                raw: row.try_get("raw")?,
+            });
+        }
+        Ok(trades)
+    }
+
+    pub async fn clear_trades(&self) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM trades")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

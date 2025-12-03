@@ -15,14 +15,13 @@ impl PingPongStrategy {
             dry_run,
         }
     }
+}
 
-    pub fn process_event(
-        &mut self,
-        event: &MarketEvent,
-        disable_throttle: bool,
-    ) -> Option<TradeInstruction> {
-        let throttle_passed =
-            disable_throttle || self.last_trade_time.elapsed() > Duration::from_secs(10);
+use crate::Strategy;
+
+impl Strategy for PingPongStrategy {
+    fn process_event(&mut self, event: &MarketEvent) -> Option<TradeInstruction> {
+        let throttle_passed = self.last_trade_time.elapsed() > Duration::from_secs(10);
 
         if event.price > 50_000.0 && throttle_passed {
             let instr = TradeInstruction {

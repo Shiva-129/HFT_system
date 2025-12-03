@@ -7,3 +7,4 @@ edition = "2021"
 common = { workspace = true }
 rtrb = "0.3"
 tracing = "0.1"
+parking_lot = "0.12"

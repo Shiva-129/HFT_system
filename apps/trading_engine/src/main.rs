@@ -9,6 +9,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -22,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // 2. Initialize Telemetry
+    // 2. Initialize Telemetry (Once)
     let _guard = telemetry::init("./logs");
     tracing::info!("Starting Trading Engine...");
     tracing::info!(
@@ -31,6 +32,49 @@ async fn main() -> anyhow::Result<()> {
         config.trading.dry_run
     );
 
+    // 3. Spawn Stdin Listener
+    let (reload_tx, mut reload_rx) = mpsc::unbounded_channel();
+    std::thread::spawn(move || {
+        let stdin = std::io::stdin();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if stdin.read_line(&mut line).is_ok() {
+                let input = line.trim();
+                if input == "r" {
+                    let _ = reload_tx.send(());
+                }
+            }
+        }
+    });
+
+    // 4. Main Loop
+    loop {
+        match run_engine(&config, &mut reload_rx).await {
+            Ok(should_reload) => {
+                if !should_reload {
+                    break;
+                }
+                tracing::info!("Reloading engine in 1 second...");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                tracing::info!("--------------------------------------------------");
+                tracing::info!("RELOADING TRADING ENGINE");
+                tracing::info!("--------------------------------------------------");
+            }
+            Err(e) => {
+                tracing::error!("Engine crashed: {}", e);
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_engine(
+    config: &config::AppConfig,
+    reload_rx: &mut mpsc::UnboundedReceiver<()>,
+) -> anyhow::Result<bool> {
     // 3. Initialize Shared State
     let state = Arc::new(EngineState::new());
     // Initialize limits from config
@@ -67,7 +111,7 @@ async fn main() -> anyhow::Result<()> {
 
     if config.trading.enabled && (api_key.is_empty() || secret_key.is_empty()) {
         tracing::error!("Trading enabled but API keys missing!");
-        std::process::exit(1);
+        return Ok(false);
     }
 
     let execution_client = Arc::new(ExecutionClient::new(
@@ -96,7 +140,7 @@ async fn main() -> anyhow::Result<()> {
             tracing::warn!("Failed to sync positions: {}", e);
             if e.to_string().contains("AUTH_ERROR") && config.trading.enabled {
                 tracing::error!("CRITICAL: Invalid API Keys. Exiting.");
-                std::process::exit(1);
+                return Ok(false);
             }
         }
     }
@@ -108,8 +152,16 @@ async fn main() -> anyhow::Result<()> {
             for b in balances {
                 if b.asset == "USDT" {
                     let balance = b.balance.parse::<f64>().unwrap_or(0.0);
+                    let available = b.available_balance.parse::<f64>().unwrap_or(0.0);
+
                     *state.initial_balance.lock() = balance;
-                    tracing::info!("  Initial Balance: USDT = {}", balance);
+                    *state.available_balance.lock() = available;
+
+                    tracing::info!(
+                        "  Initial Balance: USDT = {} (Available: {})",
+                        balance,
+                        available
+                    );
                 }
             }
         }
@@ -132,53 +184,17 @@ async fn main() -> anyhow::Result<()> {
     let shutdown_tx_ctrlc = shutdown_tx.clone();
     let shutdown_signal = shutdown.clone();
 
-    // 12. Graceful Shutdown Handler
-    let cleanup_done = Arc::new(AtomicBool::new(false));
-    let state_ctrlc = state.clone();
-    let db_ctrlc = db.clone();
-    let runtime_handle = tokio::runtime::Handle::current(); // Capture handle
-
-    ctrlc::set_handler(move || {
-        if cleanup_done.swap(true, Ordering::SeqCst) {
-            return;
-        }
-
-        tracing::warn!(">>>> CTRL+C RECEIVED <<<<   INITIATING GRACEFUL SHUTDOWN");
-
-        // 1. Mark Shutting Down (Stops API)
-        state_ctrlc.shutting_down.store(true, Ordering::SeqCst);
-        state_ctrlc.is_running.store(false, Ordering::SeqCst); // Stop Engine
-
-        // 2. Stop Feed
-        let _ = shutdown_tx_ctrlc.send(());
-
-        // 3. Drain Strategy
-        shutdown_signal.store(true, Ordering::SeqCst);
-
-        // 4. Cancel Orders
-        tracing::warn!("Cancelling all open orders...");
-        runtime_handle.block_on(async {
-            // TODO: Call cancel_all_orders
-        });
-
-        // 5. Disarm Risk Engine
-        tracing::warn!("Disarming Risk Engine...");
-        risk_engine::disarm();
-
-        // 6. Flush DB
-        tracing::warn!("Flushing Database...");
-        runtime_handle.block_on(async {
-            db_ctrlc.flush().await;
-        });
-
-        tracing::info!("Shutdown sequence complete. Exiting.");
-        std::process::exit(0);
-    })
-    .expect("Error setting Ctrl-C handler");
-
     // 13. Spawn Strategy Thread
     let is_running_flag = state.is_running.clone();
     let dry_run_config = config.trading.dry_run;
+    let active_strategy = state.active_strategy.clone();
+    let fee_maker = config.trading.fee_maker;
+    let fee_taker = config.trading.fee_taker;
+    let strategy_window = config.trading.strategy_window.unwrap_or(50);
+    let strategy_threshold = config.trading.strategy_threshold.unwrap_or(2.0);
+    let price_threshold = config.trading.price_threshold.unwrap_or(10.0);
+    let volume_multiplier = config.trading.volume_multiplier.unwrap_or(3.0);
+
     let strategy_handle = std::thread::spawn(move || {
         // Pin to the last available core
         if let Some(core_ids) = core_affinity::get_core_ids() {
@@ -192,8 +208,15 @@ async fn main() -> anyhow::Result<()> {
             signal_producer,
             shutdown_clone,
             is_running_flag,
+            active_strategy,
             dry_run_config,
             false,
+            fee_maker,
+            fee_taker,
+            strategy_window,
+            strategy_threshold,
+            price_threshold,
+            volume_multiplier,
         );
     });
 
@@ -201,6 +224,7 @@ async fn main() -> anyhow::Result<()> {
     let execution_client_task = execution_client.clone();
     let state_exec = state.clone();
     let db_exec = db.clone();
+    let fee_taker = config.trading.fee_taker;
 
     let execution_handle = tokio::spawn(async move {
         tracing::info!("Execution task started");
@@ -240,18 +264,29 @@ async fn main() -> anyhow::Result<()> {
                                 instruction.side, instruction.quantity, instruction.price
                             ));
 
-                            // Calculate PnL
+                            // Calculate PnL & Fee
+                            // Simple assumption: Market orders are Taker
+                            let fee_rate = fee_taker;
+                            let fee_amount = instruction.quantity * instruction.price * fee_rate;
+
                             let signed_qty = match instruction.side {
                                 common::Side::Buy => instruction.quantity,
                                 common::Side::Sell => -instruction.quantity,
                             };
-                            let realized_pnl =
-                                state_exec.update_from_trade(signed_qty, instruction.price);
+                            let realized_pnl = state_exec.update_from_trade(
+                                signed_qty,
+                                instruction.price,
+                                fee_amount,
+                            );
 
                             // DB Insert
                             db_exec
                                 .insert_trade(crate::db::TradeRecord {
-                                    exchange_ts_ms: common::now_nanos() as i64 / 1_000_000, // Approx
+                                    exchange_ts_ms: std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_millis()
+                                        as i64,
                                     monotonic_ns: common::now_nanos(),
                                     symbol: instruction.symbol.to_string(),
                                     side: format!("{:?}", instruction.side),
@@ -261,8 +296,8 @@ async fn main() -> anyhow::Result<()> {
                                     strategy: "PING_PONG".to_string(),
                                     order_id: None, // Parse from response
                                     exec_id: None,
-                                    fee: None,
-                                    fee_currency: None,
+                                    fee: Some(fee_amount),
+                                    fee_currency: Some("USDT".to_string()), // Assuming USDT
                                     raw: Some(response),
                                 })
                                 .await;
@@ -271,6 +306,22 @@ async fn main() -> anyhow::Result<()> {
                             let pnl = *state_exec.current_pnl.lock();
                             let max_loss = *state_exec.max_loss_limit.lock();
                             let target_profit = *state_exec.target_profit.lock();
+
+                            // Update Balance After Trade
+                            if let Ok(balances) = execution_client_task.get_account_balance().await
+                            {
+                                for b in balances {
+                                    if b.asset == "USDT" {
+                                        if let Ok(available) = b.available_balance.parse::<f64>() {
+                                            *state_exec.available_balance.lock() = available;
+                                            tracing::debug!(
+                                                "Balance updated: Available = {:.2}",
+                                                available
+                                            );
+                                        }
+                                    }
+                                }
+                            }
 
                             if pnl <= -max_loss {
                                 tracing::warn!("Max Loss Limit Hit! Stopping Engine.");
@@ -322,6 +373,7 @@ async fn main() -> anyhow::Result<()> {
                     // Update Heartbeat
                     state_feed.last_tick_timestamp.store(event.exchange_timestamp as u64, Ordering::Relaxed);
                     state_feed.ticks_counter.fetch_add(1, Ordering::Relaxed);
+                    *state_feed.last_price.lock() = event.price;
 
                     // Push to RingBuffer
                     if let Err(_e) = producer.push(event) {
@@ -333,13 +385,49 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Feed task shutting down");
     });
 
-    // 16. Wait for Strategy Thread
+    // 12. Monitor for Shutdown/Reload
+    let is_reload = tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            tracing::warn!(">>>> CTRL+C RECEIVED <<<<   INITIATING GRACEFUL SHUTDOWN");
+            false
+        }
+        _ = reload_rx.recv() => {
+            tracing::info!(">>>> RELOAD REQUESTED <<<<   RESTARTING ENGINE");
+            true
+        }
+    };
+
+    // --- Shutdown Sequence ---
+
+    // 1. Mark Shutting Down (Stops API)
+    state.shutting_down.store(true, Ordering::SeqCst);
+    state.is_running.store(false, Ordering::SeqCst); // Stop Engine
+
+    // 2. Stop Feed & Execution
+    let _ = shutdown_tx_ctrlc.send(());
+
+    // 3. Drain Strategy
+    shutdown_signal.store(true, Ordering::SeqCst);
+
+    // 4. Cancel Orders (TODO)
+    // tracing::warn!("Cancelling all open orders...");
+
+    // 5. Disarm Risk Engine
+    // tracing::warn!("Disarming Risk Engine...");
+    // risk_engine::disarm(); // Not static anymore, but we drop it anyway
+
+    // 6. Flush DB
+    tracing::warn!("Flushing Database...");
+    db.flush().await;
+
+    // 7. Wait for Strategy Thread
     if let Err(e) = strategy_handle.join() {
         tracing::error!("Strategy thread panicked: {:?}", e);
     }
 
+    // 8. Wait for Tokio Tasks
     let _ = tokio::join!(execution_handle, feed_handle);
 
-    tracing::info!("Trading Engine shutdown complete.");
-    Ok(())
+    tracing::info!("Engine instance stopped.");
+    Ok(is_reload)
 }

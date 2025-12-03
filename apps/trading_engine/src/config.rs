@@ -24,6 +24,12 @@ pub struct TradingConfig {
     pub secret_key: Option<String>,
     pub enabled: bool,
     pub dry_run: bool,
+    pub fee_maker: f64,
+    pub fee_taker: f64,
+    pub strategy_window: Option<usize>,
+    pub strategy_threshold: Option<f64>,
+    pub price_threshold: Option<f64>,
+    pub volume_multiplier: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
